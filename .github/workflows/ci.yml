@@ -47,10 +47,14 @@ jobs:
 
       - name: Create the local signing config
         # Config/Local.xcconfig is gitignored because it carries a personal Team ID.
-        # Simulator builds are unsigned, so an empty team is correct here - and leaving
-        # the file absent makes xcodegen emit a dangling configFiles reference.
+        # No Apple team is needed for a simulator build, but signing must stay ENABLED:
+        # Xcode signs simulator products ad-hoc ("-") and that is what applies the
+        # entitlements. With signing off, every Keychain call returns
+        # errSecMissingEntitlement (-34018) -- and since the client pairing now lives in
+        # the Keychain, that silently fails ~25 tests as "notPaired", which reads like a
+        # real bug and is not one.
         run: |
-          printf 'DEVELOPMENT_TEAM =\nCODE_SIGN_IDENTITY =\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGNING_ALLOWED = NO\n' \
+          printf 'DEVELOPMENT_TEAM =\nCODE_SIGN_IDENTITY = -\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGNING_ALLOWED = YES\n' \
             > Config/Local.xcconfig
           cat Config/Local.xcconfig
 
@@ -114,7 +118,8 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -configuration Debug \
             -derivedDataPath DerivedData \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=NO \
             ONLY_ACTIVE_ARCH=YES \
             2>&1 | tee build.log
 
@@ -127,7 +132,8 @@ jobs:
             -scheme AAPSClientiOS \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -derivedDataPath DerivedData \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=NO \
             2>&1 | tee test.log
 
       - name: Summarise every distinct failure
