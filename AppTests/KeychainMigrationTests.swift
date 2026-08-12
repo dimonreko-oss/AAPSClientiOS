@@ -93,8 +93,15 @@ final class KeychainMigrationTests: XCTestCase {
     /// Two stores on the app's real access groups, or a skip when the environment cannot tell them
     /// apart (access groups are not enforced everywhere the tests run).
     private func partitionedStores(service: String) throws -> (KeychainStore, KeychainStore) {
-        let legacy = KeychainStore(service: service, accessGroup: SharedConstants.appPrivateKeychainAccessGroup)
-        let shared = KeychainStore(service: service, accessGroup: SharedConstants.keychainAccessGroup)
+        // The groups are resolved from the signing team at runtime, so "no group at all" is a
+        // legitimate outcome (see KeychainAccessGroupResolver) — and with nil on both sides these
+        // would be the same unscoped store, which is not what this helper promises.
+        guard let appPrivateGroup = SharedConstants.appPrivateKeychainAccessGroup,
+              let sharedGroup = SharedConstants.keychainAccessGroup else {
+            throw XCTSkip("no keychain access group resolvable here: stores run unscoped")
+        }
+        let legacy = KeychainStore(service: service, accessGroup: appPrivateGroup)
+        let shared = KeychainStore(service: service, accessGroup: sharedGroup)
         do {
             try legacy.set("probe-legacy", for: .nsUrl)
             try shared.set("probe-shared", for: .nsUrl)

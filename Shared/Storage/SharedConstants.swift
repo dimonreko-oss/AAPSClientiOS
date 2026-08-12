@@ -3,12 +3,22 @@ import Security
 
 enum SharedConstants {
     static let appGroup = "group.com.nightaps.aapsclientios"
-    static let keychainAccessGroup = "J6275F9A66.com.nightaps.aapsclientios.shared"
+    /// The shared keychain access group, declared by both the app and the widget extension.
+    ///
+    /// Resolved at runtime instead of hardcoded: the team prefix in front of the suffix is whatever
+    /// signed this build, and a literal one only works for the contributor whose team it is. What
+    /// comes back is the group iOS actually files this process's unscoped items into, named
+    /// verbatim — see `KeychainAccessGroupResolver`. nil means no group name could be established
+    /// and callers should go unscoped rather than name a group iOS never granted.
+    static var keychainAccessGroup: String? { KeychainAccessGroupResolver.sharedGroup }
     /// The app's own `application-identifier` keychain group. iOS always appends the
     /// application-identifier entitlement to a process's keychain access group list, so this is
     /// available without declaring anything — and, unlike `keychainAccessGroup`, it is *not* in
     /// `Widget/AAPSWidget.entitlements`, so items written here are unreachable from the extension.
-    static let appPrivateKeychainAccessGroup = "J6275F9A66.com.nightaps.aapsclientios"
+    /// Same runtime resolution, from the same single probe, so the two can never disagree on prefix,
+    /// and built from the *running* bundle id rather than this repo's literal one — a contributor
+    /// signing with their own team normally has to rename `PRODUCT_BUNDLE_IDENTIFIER`.
+    static var appPrivateKeychainAccessGroup: String? { KeychainAccessGroupResolver.appPrivateGroup }
     static let keychainService = "org.diy.aapsclient"
 
     static var sharedDefaults: UserDefaults {
@@ -26,7 +36,9 @@ enum SharedConstants {
     /// application-identifier one. Naming it makes the lookup deterministic — an unscoped query
     /// searches every group the app belongs to and can just as easily return the current shared
     /// item, which is how a copy-only launch migration ends up overwriting a freshly edited token
-    /// with a stale one.
+    /// with a stale one. (If the group could not be resolved at all this falls back to exactly that
+    /// ambiguous unscoped lookup — `migrate` then refuses to delete the source, so it is copy-only
+    /// and cannot strand anything.)
     static func legacyKeychain() -> KeychainStore {
         KeychainStore(service: keychainService, accessGroup: appPrivateKeychainAccessGroup)
     }
@@ -57,6 +69,11 @@ enum SharedConstants {
     ///   devices would sign envelopes as the same client with independent counters and each would
     ///   knock the other out. `AfterFirstUnlock` is still required so the background refresh can
     ///   sign while the screen is locked.
+    ///
+    /// `ThisDeviceOnly` holds unconditionally. The access group does not: if the group could not be
+    /// resolved this store is unscoped, so the blob lands in the process's default (shared) group —
+    /// the same degradation `ClientPairingStore.writeLocked` already falls back to when the
+    /// app-private group is not usable, and a pairing an extension could read beats no pairing.
     static func pairingKeychain(service: String) -> KeychainStore {
         KeychainStore(
             service: service,

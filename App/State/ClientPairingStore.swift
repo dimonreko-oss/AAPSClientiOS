@@ -76,6 +76,11 @@ final class ClientPairingStore {
     /// `keychain-access-groups` resolves to the *first* declared group — the shared, widget-readable
     /// one. Read/migration source, and the write fallback if the app-private group turns out not to
     /// be usable under this build's provisioning profile.
+    ///
+    /// Both this and `keychain` collapse to the same unscoped store when no access group could be
+    /// resolved at all (see `KeychainAccessGroupResolver`). That is already a supported shape here:
+    /// `purgeSharedGroupCopyLocked` exists because the Simulator can resolve both to one physical
+    /// item, and it restores the blob if the delete takes the copy with it.
     private let sharedGroupKeychain: KeychainStore
 
     /// Key of the plain `UserDefaults` install marker. Exposed so tests can simulate the one thing
