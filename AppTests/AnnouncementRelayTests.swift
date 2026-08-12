@@ -36,6 +36,29 @@ final class AnnouncementRelayTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    /// The marker is persisted as a `timeIntervalSince1970` Double while `Date` stores
+    /// `timeIntervalSinceReferenceDate`, so it comes back shifted by the epoch difference and a few
+    /// hundred nanoseconds off. Exact `!=` therefore re-posted the same announcement on roughly every
+    /// other launch — nondeterministic, and it looked like a flaky test rather than a duplicate
+    /// notification. This reproduces the round trip exactly as `AppStore` performs it.
+    func test_returnsNil_whenTheMarkerHasRoundTrippedThroughUserDefaults() {
+        let a = announcement(id: "a1", minutesAgo: 5)
+        let persisted = Date(timeIntervalSince1970: a.date.timeIntervalSince1970)
+        let result = AnnouncementRelay.pendingAnnouncement(in: [a], lastNotifiedDate: persisted)
+        XCTAssertNil(result, "a round-tripped marker must still count as already notified")
+    }
+
+    /// The tolerance must not swallow a genuinely different announcement: Nightscout timestamps are
+    /// millisecond resolution, so two announcements one millisecond apart are two events.
+    func test_returnsLatest_whenOneMillisecondNewerThanTheMarker() {
+        let a = announcement(id: "a1", minutesAgo: 5)
+        let result = AnnouncementRelay.pendingAnnouncement(
+            in: [a],
+            lastNotifiedDate: a.date.addingTimeInterval(-0.002)
+        )
+        XCTAssertEqual(result?.id, "a1")
+    }
+
     func test_ignoresNonAnnouncementEventTypes() {
         let carbs = Treatment(
             id: "c1", eventType: "Carb Correction", date: Date(),
