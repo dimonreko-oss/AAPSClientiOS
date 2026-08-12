@@ -49,7 +49,7 @@ final class GlucoseNotificationAppStoreTests: XCTestCase {
         let publisher = RecordingGlucoseNotificationPublisher()
         let store = AppStore(
             client: FixtureNightscoutClient(),
-            alarmEngine: AlarmEngineLive(),
+            alarmEngine: makeAlarmEngine(),
             glucoseNotificationPublisher: publisher
         )
 
@@ -63,7 +63,7 @@ final class GlucoseNotificationAppStoreTests: XCTestCase {
         let publisher = RecordingGlucoseNotificationPublisher()
         let store = AppStore(
             client: FixtureNightscoutClient(),
-            alarmEngine: AlarmEngineLive(),
+            alarmEngine: makeAlarmEngine(),
             glucoseNotificationPublisher: publisher
         )
 
@@ -80,7 +80,7 @@ final class GlucoseNotificationAppStoreTests: XCTestCase {
         let publisher = RecordingGlucoseNotificationPublisher()
         let store = AppStore(
             client: FixtureNightscoutClient(),
-            alarmEngine: AlarmEngineLive(),
+            alarmEngine: makeAlarmEngine(),
             glucoseNotificationPublisher: publisher
         )
         try await store.refresh()

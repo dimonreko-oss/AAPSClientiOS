@@ -38,7 +38,9 @@ import UIKit
         }
     }
 
-    private func recordOutcome(latestReadingDate: Date?) {
+    /// Internal rather than private so the miss/reset bookkeeping is testable
+    /// without standing up a UIApplication background task.
+    func recordOutcome(latestReadingDate: Date?) {
         guard let latestReadingDate else {
             consecutiveMisses += 1
             return
@@ -51,7 +53,20 @@ import UIKit
         }
     }
 
-    func resetMisses() {
+    /// Forget everything learned about the poll cadence.
+    ///
+    /// `lastSeenReadingDate` has to go too: leaving it behind means a short
+    /// foreground visit during which no new reading arrived is scored as a miss on
+    /// the very next background tick, costing one pointless 30 s retry poll every
+    /// time the user glances at the app.
+    func reset() {
         consecutiveMisses = 0
+        lastSeenReadingDate = nil
+    }
+
+    /// Old name, kept only so `App/App.swift` (owned elsewhere) keeps compiling.
+    /// Delete once both call sites there move to `reset()`.
+    func resetMisses() {
+        reset()
     }
 }

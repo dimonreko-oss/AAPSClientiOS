@@ -4,6 +4,18 @@ import os
 
 /// Keeps Nightscout polling alive in the background by playing silence, and
 /// recovers whenever the system takes the audio session away.
+///
+/// **Distribution trade-off, recorded deliberately.** Declaring the `audio`
+/// background mode with no user-facing audio feature is a documented App Store
+/// rejection under guideline 2.5.4 — it is exactly why LoopFollow cannot ship
+/// there. This app's channel is TestFlight/sideload, where that is acceptable, and
+/// the mechanism is what every comparable AAPS/Loop follower relies on. It costs
+/// battery, which the Settings screen must state plainly.
+///
+/// If App Store distribution ever becomes the goal, `audio` must come out of
+/// `UIBackgroundModes` and this whole file goes with it; the remaining coverage is
+/// BGAppRefresh + BGProcessing + the dead-man notification ladder, at materially
+/// worse latency the user has to be told about.
 final class AudioKeepAlive {
     static let foregroundInterval: TimeInterval = 60
     static let watchdogInterval: TimeInterval = 60
@@ -36,10 +48,7 @@ final class AudioKeepAlive {
     }
 
     func enterForeground(onTick: @escaping () -> Void) {
-        isBackgroundKeepAliveActive = false
-        player.stop()
-        watchdogTimer?.invalidate()
-        watchdogTimer = nil
+        teardown()
         scheduleRepeatingTick(interval: Self.foregroundInterval, onTick: onTick)
     }
 
@@ -49,15 +58,30 @@ final class AudioKeepAlive {
         onTick: @escaping () -> Void
     ) {
         guard isAudioKeepAliveEnabled, mode.shouldKeepAlive else {
-            isBackgroundKeepAliveActive = false
-            tickTimer?.invalidate()
-            tickTimer = nil
+            teardown()
             return
         }
         isBackgroundKeepAliveActive = true
         player.start()
         startWatchdog()
         scheduleNextTick(nextDelay: nextDelay, onTick: onTick)
+    }
+
+    /// Everything the keep-alive owns, released.
+    ///
+    /// The disabled branch used to invalidate only the tick timer and got away with
+    /// it purely because `enterForeground` always happened to run first. Any path
+    /// that reaches `enterBackground(.disabled)` without that — a mode change made
+    /// while already backgrounded, or a BGProcessing resurrect handler — otherwise
+    /// leaks a playing `AVAudioPlayer` and a live 60 s watchdog into a mode the user
+    /// explicitly switched off, which is both a battery cost and a lie.
+    private func teardown() {
+        isBackgroundKeepAliveActive = false
+        player.stop()
+        tickTimer?.invalidate()
+        tickTimer = nil
+        watchdogTimer?.invalidate()
+        watchdogTimer = nil
     }
 
     func ensurePlaying() {

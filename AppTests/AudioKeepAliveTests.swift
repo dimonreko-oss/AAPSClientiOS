@@ -86,6 +86,42 @@ final class AudioKeepAliveTests: XCTestCase {
         XCTAssertEqual(player.stopCount, 1)
     }
 
+    // Switching the mode to Disabled while already backgrounded never went through
+    // `enterForeground`, so the old guard-else left a playing AVAudioPlayer and a
+    // live 60 s watchdog running in a mode the user explicitly turned off.
+    func test_switchingToDisabledWhileBackgrounded_stopsPlayback() {
+        keepAlive.enterBackground(mode: .normal, nextDelay: { 60 }, onTick: {})
+
+        keepAlive.enterBackground(mode: .disabled, nextDelay: { 60 }, onTick: {})
+
+        XCTAssertEqual(player.stopCount, 1)
+    }
+
+    // The watchdog must die with the rest of it: otherwise it keeps calling
+    // `ensurePlaying()` forever against a mode that is off.
+    func test_switchingToDisabled_stopsTheWatchdogFromRevivingPlayback() {
+        keepAlive.enterBackground(mode: .normal, nextDelay: { 60 }, onTick: {})
+        keepAlive.enterBackground(mode: .disabled, nextDelay: { 60 }, onTick: {})
+        let startsBefore = player.startCount
+
+        keepAlive.ensurePlaying()
+
+        XCTAssertEqual(player.startCount, startsBefore)
+    }
+
+    func test_switchingToDisabled_stopsRespondingToAudioNotifications() {
+        keepAlive.enterBackground(mode: .normal, nextDelay: { 60 }, onTick: {})
+        keepAlive.enterBackground(mode: .disabled, nextDelay: { 60 }, onTick: {})
+        player.isActuallyPlaying = false
+        let startsBefore = player.startCount
+
+        center.post(name: AVAudioSession.routeChangeNotification, object: nil)
+        center.post(name: AVAudioSession.mediaServicesWereResetNotification, object: nil)
+
+        XCTAssertEqual(player.startCount, startsBefore)
+        XCTAssertEqual(player.resetCount, 0)
+    }
+
     func test_restartsPlayback_whenInterruptionEnds() {
         keepAlive.enterBackground(mode: .normal, nextDelay: { 60 }, onTick: {})
         player.isActuallyPlaying = false

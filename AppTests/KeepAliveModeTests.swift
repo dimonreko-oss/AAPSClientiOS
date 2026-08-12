@@ -14,14 +14,14 @@ final class KeepAliveModeTests: XCTestCase {
 
     @MainActor
     func test_defaultsToNormal_whenNothingPersisted() {
-        let store = AppStore(client: FixtureNightscoutClient(), alarmEngine: AlarmEngineLive())
+        let store = AppStore(client: FixtureNightscoutClient(), alarmEngine: makeAlarmEngine())
 
         XCTAssertEqual(store.keepAliveMode, .normal)
     }
 
     @MainActor
     func test_persistsSelectedMode() {
-        let store = AppStore(client: FixtureNightscoutClient(), alarmEngine: AlarmEngineLive())
+        let store = AppStore(client: FixtureNightscoutClient(), alarmEngine: makeAlarmEngine())
 
         store.setKeepAliveMode(.aggressive)
 
@@ -36,7 +36,7 @@ final class KeepAliveModeTests: XCTestCase {
     func test_fallsBackToNormal_whenPersistedValueIsUnknown() {
         UserDefaults.standard.set("nonsense", forKey: AppStore.keepAliveModeKey)
 
-        let store = AppStore(client: FixtureNightscoutClient(), alarmEngine: AlarmEngineLive())
+        let store = AppStore(client: FixtureNightscoutClient(), alarmEngine: makeAlarmEngine())
 
         XCTAssertEqual(store.keepAliveMode, .normal)
     }

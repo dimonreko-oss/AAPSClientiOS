@@ -10,5 +10,24 @@
     <array>
         <string>$(AppIdentifierPrefix)com.nightaps.aapsclientios.shared</string>
     </array>
+    <!-- Lets glucose alarms use `.timeSensitive`, which breaks through Sleep Focus
+         and Do Not Disturb. Freely available: Xcode's automatic signing enables it
+         on the App ID with no Apple review. Without this key iOS silently
+         downgrades the level back to `.active` and the alarm is muted again. -->
+    <key>com.apple.developer.usernotifications.time-sensitive</key>
+    <true/>
+    <!-- Critical Alerts: the only level that also overrides the hardware
+         ring/silent switch, i.e. the only thing that makes an overnight Urgent Low
+         audible on a phone flipped to silent.
+
+         DELIBERATELY COMMENTED OUT. This entitlement needs an approved request to
+         Apple (developer.apple.com/contact/request/notifications-critical-alerts).
+         Shipping the key before approval makes provisioning-profile generation fail
+         outright, so it must land in the same commit that flips
+         `AlarmInterruption.criticalAlertsGranted` to `true` in App/Alarms/UNNotifier.swift.
+
+    <key>com.apple.developer.usernotifications.critical-alerts</key>
+    <true/>
+    -->
 </dict>
 </plist>

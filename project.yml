@@ -28,8 +28,22 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        BGTaskSchedulerPermittedIdentifiers: ["com.nightaps.aapsclientios.refresh"]
-        UIBackgroundModes: ["fetch", "audio"]
+        # App/Info.plist is GENERATED from these properties by xcodegen
+        # (`info.path` above), so this block is the source of truth — never
+        # hand-edit App/Info.plist, run `xcodegen generate` instead.
+        #
+        # `...resurrect` is a BGProcessingTask used as a resurrection path: a second,
+        # independent budget biased toward charging-and-idle windows, which is where
+        # an overnight phone actually sits. Both keys have to land together —
+        # registering an identifier missing from BGTaskSchedulerPermittedIdentifiers
+        # raises at launch, and submitting a BGProcessingTaskRequest without the
+        # `processing` background mode throws NotPermitted.
+        #
+        # `audio` is a deliberate App Store 2.5.4 trade-off; see App/Background/AudioKeepAlive.swift.
+        BGTaskSchedulerPermittedIdentifiers:
+          - "com.nightaps.aapsclientios.refresh"
+          - "com.nightaps.aapsclientios.resurrect"
+        UIBackgroundModes: ["fetch", "audio", "processing"]
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         UIRequiresFullScreen: true
