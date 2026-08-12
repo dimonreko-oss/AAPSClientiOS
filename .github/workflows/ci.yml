@@ -6,11 +6,21 @@ name: CI
 # prints every distinct error at the end rather than failing on the first one.
 # `scripts/precheck.py` catches the cheap classes of mistake locally before you get here.
 
+# On demand only. A macOS runner costs ~8 minutes and 10x the billing minutes of a
+# Linux one, and most pushes on this branch do not need a compile — the local
+# pre-flight (scripts/precheck.py, with a real `swiftc -parse` when a toolchain is
+# installed) covers the fast feedback. Trigger a run with:
+#     gh workflow run CI --ref <branch>
+#     gh workflow run CI --ref <branch> -f run_tests=false     # compile only
+# or from the Actions tab.
 on:
-  push:
-    branches: ["**"]
-  pull_request:
   workflow_dispatch:
+    inputs:
+      run_tests:
+        description: "Run the test suite after building"
+        type: boolean
+        default: true
+        required: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -91,9 +101,14 @@ jobs:
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Build
+        # `build-for-testing`, not `build`: the scheme lists AAPSClientiOSTests only
+        # under its test action, so a plain `build` compiles the app and widget but
+        # never produces the .xctest bundle — and `test-without-building` then dies
+        # with "Failed to create a bundle instance ... check that the bundle exists
+        # on disk", which reads like a code failure and is not one.
         run: |
           set -o pipefail
-          xcodebuild build \
+          xcodebuild build-for-testing \
             -project AAPSClientiOS.xcodeproj \
             -scheme AAPSClientiOS \
             -destination "id=${{ steps.sim.outputs.udid }}" \
@@ -104,7 +119,7 @@ jobs:
             2>&1 | tee build.log
 
       - name: Test
-        if: success() || failure()
+        if: (success() || failure()) && inputs.run_tests
         run: |
           set -o pipefail
           xcodebuild test-without-building \

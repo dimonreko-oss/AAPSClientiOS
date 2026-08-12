@@ -165,7 +165,10 @@ def check_swift_syntax() -> None:
         for start in range(0, len(files), chunk):
             batch = files[start : start + chunk]
             proc = subprocess.run(
-                [swiftc, "-parse", *[str(f) for f in batch]],
+                # -swift-version 5 matches SWIFT_VERSION in project.yml: a 6.x
+                # toolchain otherwise parses in Swift 6 mode, which is not what
+                # Xcode will use.
+                [swiftc, "-parse", "-swift-version", "5", *[str(f) for f in batch]],
                 capture_output=True,
                 text=True,
             )

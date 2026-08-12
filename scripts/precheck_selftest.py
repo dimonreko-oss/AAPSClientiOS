@@ -70,15 +70,21 @@ CASES = [
           'import SwiftUI\nprivate let _probe = String(localized: "totally.made.up.key")'),
      "in neither .strings file"),
 
+    # The two syntax cases assert only that the mutated FILE is flagged, never the
+    # wording: precheck reports `swiftc -parse` diagnostics when a toolchain is
+    # installed and its own bracket-balance message when it is not, and both are
+    # correct. (ubuntu-latest ships swiftc, so CI takes the first branch.) Since the
+    # "unmutated tree is clean" case proves there is no baseline noise, an error
+    # naming the file we just broke is sufficient evidence of detection.
     ("swift: unclosed brace",
      "App/Domain/RunningMode.swift",
      truncate_last("}"),
-     "is never closed"),
+     "RunningMode.swift"),
 
     ("swift: stray closing paren",
      "App/Alarms/DeadManSwitch.swift",
      swap("import Foundation", "import Foundation\nlet _probe = 1)"),
-     "unmatched ')'"),
+     "DeadManSwitch.swift"),
 
     ("fixtures: referenced file does not exist",
      "AppTests/NsMappingTests.swift",
