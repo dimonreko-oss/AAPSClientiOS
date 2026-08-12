@@ -54,15 +54,16 @@ jobs:
         # the Keychain, that silently fails ~25 tests as "notPaired", which reads like a
         # real bug and is not one.
         #
-        # DEVELOPMENT_TEAM is set even though no certificate exists on the runner:
-        # SharedConstants.swift hardcodes the keychain group as
-        # "J6275F9A66.com.nightaps.aapsclientios.shared" while the entitlement declares
-        # "$(AppIdentifierPrefix)com.nightaps.aapsclientios.shared". With no team the
-        # prefix expands to nothing, the granted group does not match the requested one,
-        # and every Keychain call returns -34018. Simulator builds need no provisioning
-        # profile, so supplying the team id alone is enough to make the two agree.
+        # DEVELOPMENT_TEAM is deliberately left EMPTY. It briefly carried a hardcoded team
+        # id, because the code used to ask for a keychain group with that prefix baked in
+        # while the entitlement built one from $(AppIdentifierPrefix) -- with no team the
+        # two disagreed and every Keychain call returned -34018. KeychainAccessGroupResolver
+        # now reads the granted group back from the keychain at runtime, so no team is
+        # needed. Keeping the field empty is the point: this runner is the only place that
+        # exercises the path a contributor signing with their own team takes, and putting a
+        # team id back would silently stop testing it.
         run: |
-          printf 'DEVELOPMENT_TEAM = J6275F9A66\nCODE_SIGN_IDENTITY = -\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGNING_ALLOWED = YES\n' \
+          printf 'DEVELOPMENT_TEAM =\nCODE_SIGN_IDENTITY = -\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGNING_ALLOWED = YES\n' \
             > Config/Local.xcconfig
           cat Config/Local.xcconfig
 
