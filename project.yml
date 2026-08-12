@@ -80,3 +80,27 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: com.nightaps.aapsclientios.tests
     dependencies:
       - target: AAPSClientiOS
+# Declared explicitly so xcodegen writes them to xcshareddata. Without this block a
+# freshly generated project has no schemes at all until someone opens it in Xcode
+# (which autocreates them into gitignored xcuserdata) — so `xcodebuild -scheme` fails
+# on a clean checkout, which is exactly what CI is.
+schemes:
+  AAPSClientiOS:
+    build:
+      targets:
+        AAPSClientiOS: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - AAPSClientiOSTests
+  # Kept so the two-scheme invocation documented in README.md keeps working.
+  AAPSClientiOSTests:
+    build:
+      targets:
+        AAPSClientiOSTests: all
+    test:
+      config: Debug
+      targets:
+        - AAPSClientiOSTests
