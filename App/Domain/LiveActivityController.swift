@@ -27,7 +27,18 @@ import os
     private func reattach() -> Bool {
         // Always look up the live activity — the stored reference can go stale
         // if ActivityKit dismissed it (system timeout, budget exhaustion, etc.).
-        if let existing = Activity<GlucoseActivityAttributes>.activities.first {
+        //
+        // Skip activities that are already `.ended` or `.dismissed`. ActivityKit
+        // keeps an ended activity in `activities` for its dismissal window, so
+        // binding to the first entry unconditionally is how the 8-hour lifetime
+        // expiry turned into a permanently frozen card: every later `update()`
+        // went to a dead activity and `startOrUpdate` never took the restart
+        // branch. Rejecting them here makes the restart happen from whichever
+        // path pushes next — including a background tick, not just a foreground
+        // visit.
+        if let existing = Activity<GlucoseActivityAttributes>.activities.first(where: {
+            $0.activityState != .dismissed && $0.activityState != .ended
+        }) {
             activity = existing
             return true
         }
@@ -41,11 +52,11 @@ import os
     }
 
     @discardableResult
-    func start(with state: GlucoseActivityAttributes.ContentState) -> Bool {
+    func start(with state: GlucoseActivityAttributes.ContentState, staleMinutes: Int) -> Bool {
         guard isSupported else { return false }
-        if reattach() { update(state); return true }
+        if reattach() { update(state, staleMinutes: staleMinutes); return true }
         do {
-            let staleDate = liveActivityStaleDate(for: state.date)
+            let staleDate = liveActivityStaleDate(for: state.date, staleMinutes: staleMinutes)
             if #available(iOS 16.2, *) {
                 activity = try Activity.request(
                     attributes: GlucoseActivityAttributes(),
@@ -67,7 +78,9 @@ import os
         }
     }
 
-    func update(_ state: GlucoseActivityAttributes.ContentState) {
+    /// `staleMinutes` is the user's own No-Data threshold, so the card greys out at exactly the
+    /// moment the app would raise `.noData` rather than on a hardcoded 15 minutes.
+    func update(_ state: GlucoseActivityAttributes.ContentState, staleMinutes: Int) {
         guard reattach() else {
             log.debug("update dropped — no live activity to bind")
             DebugLog.log("LA.update DROPPED (no activity)")
@@ -75,7 +88,7 @@ import os
         }
         let bound = activity
         Task {
-            let staleDate = liveActivityStaleDate(for: state.date)
+            let staleDate = liveActivityStaleDate(for: state.date, staleMinutes: staleMinutes)
             if #available(iOS 16.2, *) {
                 await bound?.update(ActivityContent(state: state, staleDate: staleDate))
             } else {
@@ -89,14 +102,16 @@ import os
     }
 
     @discardableResult
-    func startOrUpdate(with state: GlucoseActivityAttributes.ContentState) -> Bool {
+    func startOrUpdate(with state: GlucoseActivityAttributes.ContentState, staleMinutes: Int) -> Bool {
         guard isSupported else { return false }
         if reattach() {
-            update(state)
+            update(state, staleMinutes: staleMinutes)
             return true
         }
+        // Reached when ActivityKit ended the activity on its own — the 8-hour lifetime, a reboot, or
+        // budget exhaustion. Re-`request()` from whichever path got here, foreground or background.
         DebugLog.log("LA.update missing activity; restarting mgdl=\(state.mgdl)")
-        return start(with: state)
+        return start(with: state, staleMinutes: staleMinutes)
     }
 
     @discardableResult

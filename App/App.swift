@@ -13,10 +13,13 @@ struct AAPSClientApp: App {
     private let backgroundTick = BackgroundTickCoordinator()
 
     init() {
-        // Credentials live on the shared keychain group so the widget can read
-        // them. Seed it once from the legacy default-group location (copy-only).
+        // Credentials live on the shared keychain group so the widget can read them. Move them once
+        // out of the legacy default-group location — `migrate` removes the source, so this is
+        // self-terminating. The wrapper (rather than a bare `try?`) matters: it falls back to the
+        // historical unscoped lookup if the app-private group turns out not to be usable under this
+        // build's provisioning profile, instead of silently stranding a pre-widget install's token.
         let keychain = SharedConstants.credentialKeychain()
-        try? SharedConstants.legacyKeychain().migrate(to: keychain)
+        SharedConstants.migrateLegacyCredentials(into: keychain)
         let rawUrl = (try? keychain.get(.nsUrl)) ?? nil
         let nsUrl = rawUrl.flatMap(AppStore.normalizedURL)
         let accessToken = (try? keychain.get(.nsAccessToken)) ?? ""
@@ -40,7 +43,10 @@ struct AAPSClientApp: App {
         let store = AppStore(
             client: client,
             alarmEngine: alarmEngine,
-            glucoseNotificationPublisher: GlucoseNotificationController()
+            glucoseNotificationPublisher: GlucoseNotificationController(),
+            // The pre-scheduled ladder is the only alarm path that survives process death, so the
+            // real implementation belongs here even though every test uses the dummy.
+            deadManSwitch: DeadManSwitch()
         )
         _store = StateObject(wrappedValue: store)
         writer = NsTreatmentWriterLive(clientProvider: { [store] in store.client })
@@ -50,7 +56,23 @@ struct AAPSClientApp: App {
         self.keepAlive = keepAlive
         // A BGAppRefresh wake-up is the only way back if the audio keep-alive
         // died while the process was suspended.
-        bgScheduler = BackgroundScheduler(store: store, onWake: { keepAlive.ensurePlaying() })
+        bgScheduler = BackgroundScheduler(
+            store: store,
+            onWake: { keepAlive.ensurePlaying() },
+            onResurrect: {
+                // BGProcessing draws from a separate, charging/idle-biased budget and is the
+                // resurrection path: audio, the socket and the dead-man ladder all die with a
+                // suspended process. Re-drive the keep-alive and the socket from scratch.
+                keepAlive.enterBackground(
+                    mode: store.keepAliveMode,
+                    nextDelay: { BackgroundPollSchedule.aggressiveInterval },
+                    onTick: { Task { try? await store.refresh(scope: .light) } }
+                )
+                store.realtime.applicationDidEnterBackground(
+                    keepAliveActive: keepAlive.isAudioKeepAliveEnabled && store.keepAliveMode.shouldKeepAlive
+                )
+            }
+        )
         // BGTaskScheduler launch handlers MUST be registered before the app finishes
         // launching. Registering from a SwiftUI `.task` (post-launch) throws an
         // uncaught NSException ("All launch handlers must be registered before
@@ -91,33 +113,67 @@ struct AAPSClientApp: App {
                 // scene is already `.active` by the time it mounts — so that handler's
                 // `.active` case never fires and the 60 s timer never starts until the user
                 // backgrounds/foregrounds the app at least once.
-                backgroundTick.resetMisses()
-                keepAlive.enterForeground { Task { await store.refreshIfStale() } }
+                backgroundTick.reset()
+                // Realtime is a pure latency optimisation layered over the existing poll: it never
+                // becomes the only path to data, and a failure here is silent by construction.
+                store.realtime.start()
+                enterForeground()
             }
             .onChange(of: scenePhase) { phase in
                 switch phase {
                 case .active:
-                    // Fast foreground polling; refreshIfStale() no-ops within 60 s
-                    // so this stays cheap while keeping the open app + Live Activity live.
-                    backgroundTick.resetMisses()
-                    keepAlive.enterForeground { Task { await store.refreshIfStale() } }
+                    // Foreground polling. The tick is light by default and takes the ~28-request
+                    // full pass only on the five-minute cadence — see `AppStore.refreshForeground`.
+                    backgroundTick.reset()
+                    store.realtime.applicationWillEnterForeground()
+                    enterForeground()
                 case .background:
                     bgScheduler.schedule()
-                    keepAlive.enterBackground(
-                        mode: store.keepAliveMode,
-                        nextDelay: {
-                            backgroundTick.nextDelay(
-                                mode: store.keepAliveMode,
-                                lastReadingDate: store.readings.first?.date
-                            )
-                        },
-                        onTick: { Task { await backgroundTick.tick(store: store) } }
-                    )
+                    enterBackground(mode: store.keepAliveMode)
                 default:
                     break
                 }
             }
+            .onChange(of: store.keepAliveMode) { mode in
+                // The setting has to bite immediately: writing UserDefaults alone left a playing
+                // AVAudioPlayer and a live watchdog running in a mode the user explicitly switched
+                // off, and left the socket open on a process that is about to be suspended.
+                if scenePhase == .background {
+                    enterBackground(mode: mode)
+                } else {
+                    enterForeground()
+                }
+            }
         }
+    }
+
+    // `@MainActor` explicitly, even though the SDK's `@MainActor @preconcurrency App` conformance
+    // already infers it for the whole type today: both of these synchronously touch main-actor state
+    // (`backgroundTick`, `store`), and the isolation should not rest on an inference that a future
+    // toolchain might narrow to just the `body`/`init` witnesses.
+    @MainActor
+    private func enterForeground() {
+        keepAlive.enterForeground { Task { await store.refreshForeground() } }
+    }
+
+    @MainActor
+    private func enterBackground(mode: KeepAliveMode) {
+        keepAlive.enterBackground(
+            mode: mode,
+            nextDelay: {
+                backgroundTick.nextDelay(
+                    mode: mode,
+                    lastReadingDate: store.readings.first?.date
+                )
+            },
+            onTick: { Task { await backgroundTick.tick(store: store) } }
+        )
+        // Hard stop unless the audio keep-alive is actually going to hold the process: a socket that
+        // survives into suspension wedges half-open and the server keeps pushing into a dead pipe
+        // until `pingTimeout`.
+        store.realtime.applicationDidEnterBackground(
+            keepAliveActive: keepAlive.isAudioKeepAliveEnabled && mode.shouldKeepAlive
+        )
     }
 }
 
@@ -126,10 +182,14 @@ final class UnconfiguredClient: NightscoutClient, @unchecked Sendable {
     func fetchEntries(limit: Int) async throws -> [GlucoseReading] { throw NsError.badURL }
     func fetchTreatments(since: Date?) async throws -> [Treatment] { throw NsError.badURL }
     func fetchDeviceStatus() async throws -> LoopStatus? { throw NsError.badURL }
+    func fetchDeviceStatusHeartbeat() async throws -> Date? { throw NsError.badURL }
     func fetchProfile() async throws -> NsProfile { throw NsError.badURL }
     func fetchProfileStore() async throws -> NsProfileStore { throw NsError.badURL }
     func fetchSettings(identifier: String) async throws -> NsSettingsDocument? { throw NsError.badURL }
     func putSettings(identifier: String, document: [String: Any]) async throws { throw NsError.badURL }
+    /// Explicit rather than inheriting the protocol's no-op default, so an unconfigured app reports
+    /// "no Nightscout" for every operation instead of silently succeeding at one of them.
+    func deleteSettings(identifier: String) async throws { throw NsError.badURL }
     func searchSettings(limit: Int) async throws -> [NsSettingsDocument] { throw NsError.badURL }
     func fetchRunningConfigCold() async throws -> NsRunningConfigCold? { throw NsError.badURL }
     func fetchRunningConfigHot() async throws -> NsRunningConfigHot? { throw NsError.badURL }
