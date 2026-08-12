@@ -10,9 +10,19 @@ xcuserdata/
 # xcodegen generates the project from project.yml — regenerate with `xcodegen generate`
 *.xcodeproj
 
+# IDE settings — per-developer, and .idea/ in particular carries device and run
+# configuration that has no meaning in anyone else's checkout
+.idea/
+.vscode/
+*.swp
+
 # SwiftPM
 .swiftpm/
 .build/
+
+# Bytecode from scripts/precheck.py, which runs on every push via the pre-push hook
+__pycache__/
+*.pyc
 
 # Misc
 *.log
