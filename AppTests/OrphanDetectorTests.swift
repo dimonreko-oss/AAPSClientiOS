@@ -55,4 +55,23 @@ final class OrphanDetectorTests: XCTestCase {
         )
         XCTAssertEqual(result, .orphaned)
     }
+
+    // MARK: - Durable verdict
+
+    func test_resolveTurnsEvidenceIntoADurableFlag() {
+        XCTAssertEqual(OrphanDetector.resolve(.authorized, previous: nil), true)
+        XCTAssertEqual(OrphanDetector.resolve(.authorized, previous: false), true)
+        XCTAssertEqual(OrphanDetector.resolve(.orphaned, previous: nil), false)
+        XCTAssertEqual(OrphanDetector.resolve(.orphaned, previous: true), false)
+    }
+
+    /// The two non-verdicts must not reset anything. This is the bug that made a revoked client
+    /// report itself authorized again after every relaunch: the flag was recomputed from scratch
+    /// instead of being folded into what was already known.
+    func test_resolveKeepsPriorStateWhenThereIsNoEvidence() {
+        XCTAssertEqual(OrphanDetector.resolve(.noSignal, previous: false), false)
+        XCTAssertEqual(OrphanDetector.resolve(.deferred, previous: false), false)
+        XCTAssertEqual(OrphanDetector.resolve(.noSignal, previous: true), true)
+        XCTAssertNil(OrphanDetector.resolve(.deferred, previous: nil))
+    }
 }

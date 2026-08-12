@@ -38,4 +38,21 @@ enum OrphanDetector {
         }
         return .orphaned
     }
+
+    /// Folds a fresh verdict into the *durable* authorization flag (`ClientPairingStore.isAuthorized`),
+    /// returning the value to persist. nil means "still never established".
+    ///
+    /// This exists because the verdict used to be recomputed and forgotten inside the full-refresh
+    /// cold-doc branch: a revoked client reported itself authorized again after every relaunch, and
+    /// if the master stopped publishing the cold doc it stayed authorized forever. Only `.authorized`
+    /// and `.orphaned` are evidence — `.noSignal` (no roster in this doc) and `.deferred` (roster
+    /// predates our pairing by less than the grace window) carry none, and must leave whatever was
+    /// last established untouched rather than resetting it.
+    static func resolve(_ verdict: Verdict, previous: Bool?) -> Bool? {
+        switch verdict {
+        case .authorized: return true
+        case .orphaned: return false
+        case .noSignal, .deferred: return previous
+        }
+    }
 }
