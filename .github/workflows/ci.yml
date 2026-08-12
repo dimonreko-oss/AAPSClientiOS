@@ -1,0 +1,174 @@
+name: CI
+
+# The project is developed on Windows, where no Swift toolchain or iOS SDK exists.
+# This runner is therefore the ONLY place the code is ever actually compiled, so it
+# is deliberately verbose: it captures the full xcodebuild output as an artifact and
+# prints every distinct error at the end rather than failing on the first one.
+# `scripts/precheck.py` catches the cheap classes of mistake locally before you get here.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record the toolchain we actually got
+        # macos-latest moves between images. Pin `runs-on` to a specific label once you
+        # know which Xcode you want; until then, this is how you find out what you had.
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun --sdk iphonesimulator --show-sdk-version
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Create the local signing config
+        # Config/Local.xcconfig is gitignored because it carries a personal Team ID.
+        # Simulator builds are unsigned, so an empty team is correct here - and leaving
+        # the file absent makes xcodegen emit a dangling configFiles reference.
+        run: |
+          printf 'DEVELOPMENT_TEAM =\nCODE_SIGN_IDENTITY =\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGNING_ALLOWED = NO\n' \
+            > Config/Local.xcconfig
+          cat Config/Local.xcconfig
+
+      - name: Generate the Xcode project
+        run: |
+          xcodegen generate
+          xcodebuild -project AAPSClientiOS.xcodeproj -list
+
+      - name: Verify the generated Info.plist matches the tracked one
+        # App/Info.plist is generated from project.yml but tracked in git, so it can
+        # silently drift. A missing BGTaskSchedulerPermittedIdentifiers entry crashes
+        # the app at launch, before any UI - worth failing the build over.
+        run: |
+          if ! git diff --quiet -- App/Info.plist; then
+            echo "::error file=App/Info.plist::App/Info.plist is stale - run 'xcodegen generate' and commit the result"
+            git --no-pager diff -- App/Info.plist
+            exit 1
+          fi
+          echo "Info.plist is in sync with project.yml"
+
+      - name: Pick a simulator
+        id: sim
+        # Resolving a concrete UDID beats hardcoding a device name: the set of
+        # preinstalled simulators changes with every runner image bump, and a stale
+        # name fails with an unhelpful "Unable to find a destination".
+        run: |
+          UDID=$(xcrun simctl list devices available --json | python3 -c '
+          import json, re, sys
+          data = json.load(sys.stdin)["devices"]
+          def version(runtime):
+              m = re.search(r"iOS-([0-9]+)-([0-9]+)", runtime)
+              return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+          best = None
+          for runtime, devices in data.items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if not device.get("isAvailable") or "iPhone" not in device["name"]:
+                      continue
+                  key = version(runtime)
+                  if best is None or key > best[0]:
+                      best = (key, device)
+          if best is None:
+              sys.exit("no available iPhone simulator on this runner")
+          sys.stderr.write("using %s (iOS %d.%d)\n" % (best[1]["name"], *best[0]))
+          print(best[1]["udid"])
+          ')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project AAPSClientiOS.xcodeproj \
+            -scheme AAPSClientiOS \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -configuration Debug \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=YES \
+            2>&1 | tee build.log
+
+      - name: Test
+        if: success() || failure()
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project AAPSClientiOS.xcodeproj \
+            -scheme AAPSClientiOS \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee test.log
+
+      - name: Summarise every distinct failure
+        # The whole point: a first compile of a large unverified change produces many
+        # errors, most of them the same mistake repeated. Grouping them makes the diff
+        # fixable in one pass instead of one CI round-trip per error.
+        if: failure()
+        run: |
+          {
+            echo "## Compile / test failures"
+            echo
+            echo '```'
+            grep -hE '(error|warning): ' build.log test.log 2>/dev/null \
+              | sed 's/^.*\/AAPSClientiOS\///' \
+              | sort -u \
+              | head -200
+            echo '```'
+            echo
+            echo "Full logs are in the **build-logs** artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload logs
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            build.log
+            test.log
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload test results
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: DerivedData/Logs/Test/*.xcresult
+          retention-days: 14
+          if-no-files-found: ignore
+
+  precheck:
+    # The same static checks the pre-push hook runs locally, re-run here so a bypassed
+    # hook (`git push --no-verify`) cannot land a regression the laptop would have caught.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      # No --strict: this runner has no Swift toolchain, so precheck always emits the
+      # "swiftc not found" warning, and the two heuristic checks warn by design.
+      - run: python scripts/precheck.py
+      - name: Self-test the checker
+        # Guards against precheck.py silently degrading into something that always
+        # passes. Restores every file it mutates, so the checkout stays pristine.
+        run: python scripts/precheck_selftest.py
