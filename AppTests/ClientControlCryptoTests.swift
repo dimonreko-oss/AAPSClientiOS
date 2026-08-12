@@ -40,6 +40,36 @@ final class ClientControlCryptoTests: XCTestCase {
         XCTAssertNotEqual(sigA, sigB)
     }
 
+    func test_verifyAcceptsOwnSignature() {
+        let secret = ClientControlCrypto.newSecretBytes()
+        let signature = ClientControlCrypto.sign(secret: secret, canonical: "c1|1|Done|Ok|||1000")
+        XCTAssertTrue(ClientControlCrypto.verify(secret: secret, canonical: "c1|1|Done|Ok|||1000", signature: signature))
+    }
+
+    func test_verifyRejectsOneCharacterOffSignature() {
+        let secret = ClientControlCrypto.newSecretBytes()
+        let signature = ClientControlCrypto.sign(secret: secret, canonical: "a|b|c")
+        // Flip the last hex digit — still 64 valid hex characters, so it survives decoding and has
+        // to be rejected by the constant-time MAC comparison itself.
+        let flipped = String(signature.dropLast()) + (signature.hasSuffix("0") ? "1" : "0")
+        XCTAssertNotEqual(flipped, signature)
+        XCTAssertEqual(flipped.count, 64)
+        XCTAssertFalse(ClientControlCrypto.verify(secret: secret, canonical: "a|b|c", signature: flipped))
+    }
+
+    func test_verifyRejectsMalformedSignatures() {
+        let secret = ClientControlCrypto.newSecretBytes()
+        XCTAssertFalse(ClientControlCrypto.verify(secret: secret, canonical: "a", signature: ""))
+        XCTAssertFalse(ClientControlCrypto.verify(secret: secret, canonical: "a", signature: "not-hex"))
+        XCTAssertFalse(ClientControlCrypto.verify(secret: secret, canonical: "a", signature: "abcd"))
+    }
+
+    func test_verifyIsCaseInsensitiveOnHexInput() {
+        let secret = ClientControlCrypto.newSecretBytes()
+        let signature = ClientControlCrypto.sign(secret: secret, canonical: "x")
+        XCTAssertTrue(ClientControlCrypto.verify(secret: secret, canonical: "x", signature: signature.uppercased()))
+    }
+
     func test_hexRoundTrips() {
         let bytes = ClientControlCrypto.newSecretBytes()
         let hex = ClientControlCrypto.bytesToHex(bytes)

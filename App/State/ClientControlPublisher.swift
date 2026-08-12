@@ -14,62 +14,66 @@ final class ClientControlPublisher {
         self.pairingStore = pairingStore
     }
 
+    /// The master writes NO ack for Hello (it promotes the pairing entry Pending → Active instead),
+    /// so this is fire-and-forget. Confirm promotion with a Ping and treat the pong as the receipt.
     @discardableResult
-    func sendHello() async throws -> Int64 {
+    func sendHello(ttlMs: Int64 = ClientControlTiming.fireAndForgetMs) async throws -> Int64 {
         try await send(
             type: ClientControlMessage.Hello.type,
             payload: ClientControlMessage.Hello(),
-            identifierPrefix: "aaps_clientcontrol_hello_"
+            ttlMs: ttlMs
         )
     }
 
     @discardableResult
-    func sendPing() async throws -> Int64 {
+    func sendPing(ttlMs: Int64 = ClientControlTiming.pingMs) async throws -> Int64 {
         try await send(
             type: ClientControlMessage.Ping.type,
             payload: ClientControlMessage.Ping(),
-            identifierPrefix: "aaps_clientcontrol_cmd_ping_",
-            wantsAck: true
+            wantsAck: true,
+            ttlMs: ttlMs
         )
     }
 
     @discardableResult
-    func sendWizardPrepare(_ inputs: ClientControlMessage.WizardPrepare) async throws -> Int64 {
+    func sendWizardPrepare(_ inputs: ClientControlMessage.WizardPrepare, ttlMs: Int64 = ClientControlTiming.roundTripMs) async throws -> Int64 {
         try await send(
             type: ClientControlMessage.WizardPrepare.type,
             payload: inputs,
-            identifierPrefix: "aaps_clientcontrol_cmd_wizard_prepare_",
-            wantsAck: true
+            wantsAck: true,
+            ttlMs: ttlMs
         )
     }
 
     @discardableResult
-    func sendScenePrepare(sceneId: String, durationMinutes: Int?) async throws -> Int64 {
+    func sendScenePrepare(sceneId: String, durationMinutes: Int?, ttlMs: Int64 = ClientControlTiming.roundTripMs) async throws -> Int64 {
         try await send(
             type: ClientControlMessage.ScenePrepare.type,
             payload: ClientControlMessage.ScenePrepare(sceneId: sceneId, durationMinutes: durationMinutes),
-            identifierPrefix: "aaps_clientcontrol_cmd_scene_prepare_",
-            wantsAck: true
+            wantsAck: true,
+            ttlMs: ttlMs
         )
     }
 
     @discardableResult
-    func sendSceneCommit(bolusId: Int64) async throws -> Int64 {
+    func sendSceneCommit(bolusId: Int64, ttlMs: Int64 = ClientControlTiming.roundTripMs) async throws -> Int64 {
         try await send(
             type: ClientControlMessage.SceneCommit.type,
             payload: ClientControlMessage.SceneCommit(bolusId: bolusId),
-            identifierPrefix: "aaps_clientcontrol_cmd_scene_commit_",
-            wantsAck: true
+            wantsAck: true,
+            ttlMs: ttlMs
         )
     }
 
+    /// `wantsAck: true` deliberately: the shipped master routes SceneStop through the acked
+    /// round-trip like every other scene command. The spec line calling it fire-and-forget is stale.
     @discardableResult
-    func sendSceneStop(triggerChain: Bool) async throws -> Int64 {
+    func sendSceneStop(triggerChain: Bool, ttlMs: Int64 = ClientControlTiming.roundTripMs) async throws -> Int64 {
         try await send(
             type: ClientControlMessage.SceneStop.type,
             payload: ClientControlMessage.SceneStop(triggerChain: triggerChain),
-            identifierPrefix: "aaps_clientcontrol_cmd_scene_stop_",
-            wantsAck: true
+            wantsAck: true,
+            ttlMs: ttlMs
         )
     }
 
@@ -99,12 +103,16 @@ final class ClientControlPublisher {
               let secret = ClientControlCrypto.hexToBytes(pairing.secretHex) else {
             throw PublishError.notPaired
         }
-        guard let document = try await client.fetchSettings(identifier: "aaps_clientcontrol_ack_\(pairing.clientId)"),
+        guard let document = try await client.fetchSettings(identifier: ClientControlWire.ackIdentifier(clientId: pairing.clientId)),
               let ackData = document.runningConfigJson.data(using: .utf8),
               let ack = try? JSONDecoder().decode(AckEnvelope.self, from: ackData) else {
             return .pending
         }
-        guard ack.commandCounter == expectedCounter else {
+        guard ack.clientId == pairing.clientId, ack.commandCounter == expectedCounter else {
+            // Not ours, or not this command. `clientId` is already bound by the HMAC (it is part of
+            // `canonicalString()`), so this is belt and braces — but it states the invariant instead
+            // of leaving the ack path's safety resting on the canonical string's field order, and
+            // the master's own `pollAck` checks exactly these two.
             return .pending
         }
         guard ClientControlCrypto.verify(secret: secret, canonical: ack.canonicalString(), signature: ack.signature) else {
@@ -114,21 +122,32 @@ final class ClientControlPublisher {
         guard ClientControlCrypto.timestampWithinSkew(ackDate, now: Date()) else {
             return .staleTimestamp
         }
-        if ack.phase == .executing {
+        // ONLY the Done phase is terminal. Executing/Pending means "received it, applying now", and
+        // Delivery is a LATE out-of-band relay of an async bolus failure the Done ack already closed
+        // — neither may end a round trip.
+        guard ack.phase == .done else {
             return .pending
         }
         return .terminal(ack.status, reason: ack.reason, payload: ack.payload)
     }
 
+    /// `ttlMs` becomes the signed `validUntil`: the master refuses to apply the command after it and
+    /// acks Expired instead. The caller's own give-up must therefore be LATER than `now + ttlMs`
+    /// (see `ClientControlTiming.propagationMarginMs`), never earlier.
     @discardableResult
-    private func send<T: Encodable>(type: String, payload: T, identifierPrefix: String, wantsAck: Bool = false) async throws -> Int64 {
+    private func send<T: Encodable>(type: ClientControlType, payload: T, wantsAck: Bool = false, ttlMs: Int64) async throws -> Int64 {
         guard let pairing = pairingStore.currentPairing(),
               let secret = ClientControlCrypto.hexToBytes(pairing.secretHex) else {
             throw PublishError.notPaired
         }
 
-        let payloadData = try JSONEncoder().encode(payload)
-        guard let payloadJson = String(data: payloadData, encoding: .utf8) else {
+        // ONE string, used for both the HMAC canonical input and `envelope.payload` — signing a
+        // second, independently produced serialization is how a signature stops matching the bytes
+        // that travelled the wire.
+        let payloadJson: String
+        do {
+            payloadJson = try ClientControlWire.signedPayloadJson(type: type, payload: payload)
+        } catch {
             throw PublishError.signingFailed
         }
 
@@ -137,10 +156,10 @@ final class ClientControlPublisher {
             clientId: pairing.clientId,
             counter: pairingStore.nextCounter(),
             timestamp: nowMs,
-            type: type,
+            type: type.rawValue,
             payload: payloadJson,
             signature: "",
-            validUntil: nowMs + 5 * 60 * 1000,
+            validUntil: nowMs + ttlMs,
             wantsAck: wantsAck
         )
         envelope.signature = ClientControlCrypto.sign(secret: secret, canonical: envelope.canonicalString())
@@ -150,14 +169,30 @@ final class ClientControlPublisher {
             throw PublishError.signingFailed
         }
 
+        // `date` is the constant placeholder, NOT the current time: NS APIv3 makes it immutable after
+        // create and these command slots are PUT over and over. The real time is envelope.timestamp.
         let document: [String: Any] = [
-            "date": nowMs,
+            "date": ClientControlWire.docDate,
             "utcOffset": 0,
             "app": "AAPS",
-            "schemaVersion": 1,
+            "schemaVersion": ClientControlWire.schemaVersion,
             "envelope": envelopeObject,
         ]
-        try await client.putSettings(identifier: "\(identifierPrefix)\(pairing.clientId)", document: document)
+        let identifier = ClientControlWire.identifier(for: type, clientId: pairing.clientId)
+        try await putRecoveringPoisonedDate(identifier: identifier, document: document)
         return envelope.counter
+    }
+
+    /// Installs that shipped before `ClientControlWire.docDate` created their command slots with a
+    /// live timestamp. NS then rejects every later PUT to that identifier with HTTP 400 "Field date
+    /// cannot be modified by the client", leaving the slot permanently wedged. Delete it and re-PUT
+    /// exactly once — a second failure is a real error and propagates.
+    private func putRecoveringPoisonedDate(identifier: String, document: [String: Any]) async throws {
+        do {
+            try await client.putSettings(identifier: identifier, document: document)
+        } catch let error as NsHttpStatusError where error.isImmutableDateRejection {
+            try await client.deleteSettings(identifier: identifier)
+            try await client.putSettings(identifier: identifier, document: document)
+        }
     }
 }

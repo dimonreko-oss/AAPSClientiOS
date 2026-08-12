@@ -5,7 +5,7 @@ final class NightscoutAuthTests: XCTestCase {
 
     func test_authorizeRequestsJWT() async throws {
         let transport = MockAuthTransport()
-        transport.responseData = #"{"token":"test.jwt.token","iat":1525383610,"exp":1525387210}"# .data(using: .utf8)!
+        transport.responseData = #"{"token":"test.jwt.token","iat":1525383610,"exp":4102444800}"# .data(using: .utf8)!
 
         let client = NightscoutClientLive(
             baseURL: testBaseURL, accessToken: "my-access-token", transport: transport
@@ -19,7 +19,7 @@ final class NightscoutAuthTests: XCTestCase {
 
     func test_authenticatedRequestCarriesBearer() async throws {
         let transport = MockAuthTransport()
-        transport.responseData = #"{"token":"test.jwt","iat":1525383610,"exp":1525387210}"# .data(using: .utf8)!
+        transport.responseData = #"{"token":"test.jwt","iat":1525383610,"exp":4102444800}"# .data(using: .utf8)!
 
         let client = NightscoutClientLive(
             baseURL: testBaseURL, accessToken: "tok", transport: transport
@@ -36,7 +36,7 @@ final class NightscoutAuthTests: XCTestCase {
     func test_unauthorizedTriggersRefresh() async throws {
         let transport = MockAuthTransport()
 
-        transport.responseData = #"{"token":"first.jwt","iat":1,"exp":9999999999}"# .data(using: .utf8)!
+        transport.responseData = #"{"token":"first.jwt","iat":1,"exp":4102444800}"# .data(using: .utf8)!
         let client = NightscoutClientLive(
             baseURL: testBaseURL, accessToken: "tok", transport: transport
         )
@@ -54,6 +54,39 @@ final class NightscoutAuthTests: XCTestCase {
                 return
             }
         }
+    }
+
+    func test_accessTokenIsPercentEncodedInTheAuthorizePath() async throws {
+        let transport = MockAuthTransport()
+        transport.responseData = #"{"token":"jwt","iat":1,"exp":4102444800}"# .data(using: .utf8)!
+
+        // The token is the one secret that leaves the device as a PATH SEGMENT, so it must be
+        // encoded rather than interpolated raw.
+        let client = NightscoutClientLive(
+            baseURL: testBaseURL, accessToken: "tok en#frag?q", transport: transport
+        )
+        try await client.authorize()
+
+        let absolute = transport.lastRequest?.url?.absoluteString ?? ""
+        XCTAssertTrue(absolute.hasSuffix("/api/v2/authorization/request/tok%20en%23frag%3Fq"), absolute)
+        XCTAssertNil(transport.lastRequest?.url?.query)
+        XCTAssertNil(transport.lastRequest?.url?.fragment)
+    }
+
+    /// A short-lived JWT must be renewed BEFORE it lapses; otherwise every poll burns a 401 + retry.
+    func test_expiringJwtIsRenewedBeforeTheAuthenticatedCall() async throws {
+        let transport = MockAuthTransport()
+        let almostExpired = Int64(Date().addingTimeInterval(30).timeIntervalSince1970)
+        transport.responseData = #"{"token":"first.jwt","iat":1,"exp":\#(almostExpired)}"# .data(using: .utf8)!
+        let client = NightscoutClientLive(baseURL: testBaseURL, accessToken: "tok", transport: transport)
+        try await client.authorize()
+
+        // Within the 60 s renewal margin, so the next authenticated call re-authorizes first and
+        // must carry the SECOND token, not the first.
+        transport.responseData = #"{"token":"second.jwt","iat":1,"exp":4102444800}"# .data(using: .utf8)!
+        _ = try? await client.fetchEntries(limit: 1)
+
+        XCTAssertEqual(transport.lastRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer second.jwt")
     }
 
     func test_401onRefreshThrowsUnauthorized() async {

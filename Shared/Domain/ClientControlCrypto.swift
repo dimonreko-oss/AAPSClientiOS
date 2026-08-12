@@ -95,11 +95,23 @@ enum ClientControlCrypto {
         return bytesToHex(Data(mac))
     }
 
+    /// HMAC length in bytes for SHA-256 — a signature of any other length is rejected outright.
+    private static let macByteCount = 32
+
+    /// Constant-time, matching the master's `MessageDigest.isEqual`. Comparing the hex with `==`
+    /// short-circuits on the first differing scalar, and this same helper verifies documents an
+    /// attacker can write if Nightscout is ever compromised (the ack slot, and the progress mirror
+    /// when it lands), so the timing side-channel is worth closing even at a 1 Hz poll.
     static func verify(secret: Data, canonical: String, signature: String) -> Bool {
-        sign(secret: secret, canonical: canonical) == signature
+        guard let mac = hexToBytes(signature), mac.count == macByteCount else { return false }
+        return HMAC<SHA256>.isValidAuthenticationCode(
+            mac,
+            authenticating: Data(canonical.utf8),
+            using: SymmetricKey(data: secret)
+        )
     }
 
-    static func timestampWithinSkew(_ timestamp: Date, now: Date, skewSeconds: TimeInterval = 300) -> Bool {
+    static func timestampWithinSkew(_ timestamp: Date, now: Date, skewSeconds: TimeInterval = ClientControlTiming.maxSkewSeconds) -> Bool {
         abs(now.timeIntervalSince(timestamp)) <= skewSeconds
     }
 }
