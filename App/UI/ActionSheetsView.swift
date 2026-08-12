@@ -10,12 +10,15 @@ struct RemoteActionState {
 // MARK: - Action helper
 
 func remoteActionState(for key: NsRemoteCapabilityKey, capabilities: NsRemoteCapabilities?) -> RemoteActionState {
-    if key == .carbs || key == .tempTarget {
-        return RemoteActionState(isEnabled: true, reason: nil)
-    }
+    // No cold doc yet — nothing to gate on.
     guard let capabilities else {
         return RemoteActionState(isEnabled: true, reason: nil)
     }
+    // `NsRemoteCapabilities` fails OPEN per key: an unpublished flag reads as enabled, so only an
+    // explicitly published `false` disables an action and this can no longer lock the user out.
+    // Carbs and tempTarget therefore no longer need — and must not have — a hard-coded bypass: a
+    // master that really publishes `ns_receive_carbs = false` discards the record, and reporting
+    // "Carbs sent" for it is how a user ends up bolusing for carbs the loop never saw.
     let enabled = capabilities.isEnabled(for: key)
     let reason = enabled ? nil : disabledReason(for: key)
     return RemoteActionState(isEnabled: enabled, reason: reason)
@@ -23,6 +26,25 @@ func remoteActionState(for key: NsRemoteCapabilityKey, capabilities: NsRemoteCap
 
 private func disabledReason(for key: NsRemoteCapabilityKey) -> String {
     String(format: String(localized: "remote.disabled_reason"), NSLocalizedString(key.localizationKey, comment: ""))
+}
+
+/// Therapy events the master will actually ingest.
+///
+/// "Sensor Start" is deliberately absent: `TreatmentMapper`'s therapy-event branch has no
+/// `SENSOR_STARTED` case, so `RemoteTreatment.toTreatment()` returns null and the row never becomes
+/// a therapy event on the master. The treatment still lands in Nightscout, so the follower's own
+/// history and SAGE reset while the master's never do — a silent divergence with no error shown.
+/// "Sensor Change" covers the same intent and is accepted.
+enum TherapyEventCatalog {
+    static let offered = [
+        "Site Change",
+        "Insulin Change",
+        "Pump Battery Change",
+        "Sensor Change",
+        "Note",
+        "BG Check",
+        "Exercise",
+    ]
 }
 
 // MARK: - Action logic (static methods that call the writer)
@@ -273,14 +295,9 @@ struct EventSheetView: View {
         NavigationStack {
             Form {
                 Picker("Event", selection: $eventType) {
-                    Text("Site Change").tag("Site Change")
-                    Text("Insulin Change").tag("Insulin Change")
-                    Text("Pump Battery Change").tag("Pump Battery Change")
-                    Text("Sensor Change").tag("Sensor Change")
-                    Text("Sensor Start").tag("Sensor Start")
-                    Text("Note").tag("Note")
-                    Text("BG Check").tag("BG Check")
-                    Text("Exercise").tag("Exercise")
+                    ForEach(TherapyEventCatalog.offered, id: \.self) { type in
+                        Text(type).tag(type)
+                    }
                 }
                 TextField("Notes", text: $eventNotes)
                 if eventType == "BG Check" {

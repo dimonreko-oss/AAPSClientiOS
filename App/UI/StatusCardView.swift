@@ -54,12 +54,23 @@ struct StatusCardView: View {
         var id: String { title }
     }
 
-    private var loopState: LoopState {
-        LoopStateCalc.from(statusTimestamp: store.loopStatus?.timestamp, now: Date())
+    private var loopState: LoopState { loopHealth.freshness }
+
+    /// Freshness AND the master's RunningMode, resolved together. Either one alone lies: a master
+    /// that is `SUSPENDED_BY_USER` keeps uploading a devicestatus every five minutes, and a master
+    /// that is closed-looping but offline stops uploading anything.
+    private var loopHealth: LoopHealth {
+        LoopHealth.resolve(
+            statusTimestamp: store.loopStatus?.timestamp,
+            runningModeRecords: store.runningModeRecords,
+            now: Date()
+        )
     }
 
     private var loopStateColor: Color {
-        switch loopState {
+        // Fresh-but-not-running is its own state: green here would assert therapy is happening.
+        if !loopHealth.isHealthy && loopHealth.freshness == .looping { return .orange }
+        switch loopHealth.freshness {
         case .looping: return .green
         case .warning: return .yellow
         case .stale:   return .red
@@ -84,7 +95,10 @@ struct StatusCardView: View {
     private var statusCardItems: [StatusCardItem] {
         let now = Date()
         let readingAgeMin = store.readings.first.map { max(0, Int(now.timeIntervalSince($0.date) / 60)) }
-        let loopAgeMin = store.loopStatus.map { max(0, Int(now.timeIntervalSince($0.timestamp) / 60)) }
+        // `timestamp` is optional since a pump-only devicestatus (v4 uploads one every 5 min while
+        // the loop is stopped) carries no APS result and therefore no loop time at all.
+        let loopTimestamp: Date? = store.loopStatus?.timestamp
+        let loopAgeMin = loopTimestamp.map { max(0, Int(now.timeIntervalSince($0) / 60)) }
 
         let masterLevel: StatusLevelEnum = {
             if store.connectionLost { return .error }
@@ -107,6 +121,15 @@ struct StatusCardView: View {
                 lines.append(String(localized: "status.loop_missing"))
             }
             lines.append(String(format: String(localized: "status.loop_mode"), loopModeText()))
+            if let mode = loopHealth.mode {
+                // Alongside freshness, never instead of it — "fresh" and "running" are different
+                // questions and the user needs both answered.
+                var text = mode.displayName
+                if loopHealth.autoForced {
+                    text += " (" + String(localized: "runningmode.auto_forced") + ")"
+                }
+                lines.append(String(format: String(localized: "status.running_mode"), text))
+            }
             if let eventual = store.loopStatus?.eventualBgMgdl {
                 lines.append(String(format: String(localized: "status.eventual_bg"), Formatting.format(Double(eventual), units: units)))
             }
@@ -226,8 +249,7 @@ struct StatusCardView: View {
             .onTapGesture {
                 let actionState = remoteActionState(for: .runningMode, capabilities: remoteCapabilities)
                 guard actionState.isEnabled else {
-                    statusMessage = actionState.reason ?? String(localized: "remote.config_unavailable")
-                    statusIsError = true
+                    presentDisabledReason(actionState.reason)
                     return
                 }
                 showLoopMenu = true
@@ -340,7 +362,9 @@ struct StatusCardView: View {
     }
 
     private var activeTempTarget: Treatment? {
-        Treatment.activeTempTarget(in: store.treatments)
+        // `isValid == false` is the NS v3 tombstone; the master's own query has `AND (isValid = 1)`,
+        // so a deleted temp target must not keep showing as running here.
+        Treatment.activeTempTarget(in: store.treatments.filter(\.isValid))
     }
 
     private func tempTargetRow(_ t: Treatment) -> some View {
@@ -368,7 +392,10 @@ struct StatusCardView: View {
             }
             Spacer()
             Button {
-                if !eventState.isEnabled { return }
+                guard eventState.isEnabled else {
+                    presentDisabledReason(eventState.reason)
+                    return
+                }
                 showEventSheet = true
             } label: {
                 Image(systemName: "plus.circle").font(.caption)
@@ -379,7 +406,8 @@ struct StatusCardView: View {
 
     private var changeAges: [(icon: String, label: String, age: String, level: ConsumableLevel)] {
         let now = Date()
-        let events = store.careEvents
+        // Deleted care events must not keep a cannula or sensor age alive.
+        let events = store.careEvents.filter(\.isValid)
         let t = store.consumableThresholds
         let site = TreatmentAgeCalc.lastEventAge(treatments: events, eventTypes: ["Site Change"], now: now)
         let insulin = TreatmentAgeCalc.lastEventAge(treatments: events, eventTypes: ["Insulin Change"], now: now)
@@ -451,7 +479,11 @@ struct StatusCardView: View {
                 .contentShape(Rectangle())
                 .onTapGesture {
                     let actionState = remoteActionState(for: .profileSwitch, capabilities: remoteCapabilities)
-                    guard actionState.isEnabled else { return }
+                    guard actionState.isEnabled else {
+                        // Silently doing nothing on tap is indistinguishable from a broken chip.
+                        presentDisabledReason(actionState.reason)
+                        return
+                    }
                     showProfileSwitch = true
                 }
             }
@@ -459,6 +491,12 @@ struct StatusCardView: View {
     }
 
     // MARK: - Helpers
+
+    /// Same contract as `HomeView.presentDisabledReason`: a gated action must say why, not no-op.
+    private func presentDisabledReason(_ reason: String?) {
+        statusMessage = reason ?? String(localized: "remote.config_unavailable")
+        statusIsError = true
+    }
 
     private func ageText(minutes: Int?) -> String {
         guard let minutes else { return String(localized: "status.waiting") }

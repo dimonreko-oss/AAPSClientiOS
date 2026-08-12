@@ -10,7 +10,10 @@ struct HistoryView: View {
     private var units: GlucoseUnits { store.displayUnits }
 
     private var filteredTreatments: [Treatment] {
-        treatments.filter { selectedSection.matches($0) }
+        // `isValid == false` is NS API v3's tombstone for a deleted document. The master's own
+        // queries all carry `AND (isValid = 1)`, so showing them here would be showing rows the
+        // master has already forgotten.
+        treatments.filter { $0.isValid && selectedSection.matches($0) }
     }
 
     var body: some View {
@@ -86,13 +89,7 @@ struct HistoryView: View {
     }
 
     private func subtitle(for treatment: Treatment) -> String? {
-        if let profile = treatment.profileName, !profile.isEmpty {
-            return profile
-        }
-        if let notes = treatment.notes, !notes.isEmpty {
-            return notes
-        }
-        return nil
+        HistoryRowText.subtitle(for: treatment)
     }
 
     private func trailingValues(for treatment: Treatment) -> [String] {
@@ -134,12 +131,13 @@ struct HistoryView: View {
     private func refreshHistory(using cached: [Treatment]) async {
         do {
             store.ensureConfigured()
-            let baseline = cached.isEmpty ? [] : cached
-            let incoming = try await store.client.fetchTreatments(
-                since: baseline.isEmpty ? nil : baseline.map(\.date).max()
-            )
+            // Refetch the WHOLE window rather than `since: newest cached date`. The merge unions by
+            // id, so an incremental fetch can only ever ADD rows: a treatment deleted or edited on
+            // the master kept its stale copy here (and in the on-disk cache) forever. A full-window
+            // read makes the server authoritative for everything inside the window.
+            let incoming = try await store.client.fetchTreatmentsHistory(since: HistoryCache.cutoffDate)
             let merged = Treatment.mergedHistoryWindow(
-                existing: baseline,
+                existing: [],
                 incoming: incoming,
                 days: HistoryCache.windowDays
             )
@@ -162,6 +160,33 @@ struct HistoryView: View {
                   treatments.contains(where: section.matches)
               }) else { return }
         selectedSection = firstNonEmpty
+    }
+}
+
+/// Row copy for the history list. Pure, so the RunningMode rendering is testable without a view.
+enum HistoryRowText {
+    static func subtitle(for treatment: Treatment) -> String? {
+        if treatment.eventType == RunningModeParser.eventType {
+            let mode = RunningMode.from(wire: treatment.mode)
+            // A pre-v4 master writes no `mode`; `notes` carries `NsMapping.loopModeLabel`'s English
+            // text, which is still better than rendering "Unknown".
+            guard mode != .unknown else { return nonEmpty(treatment.notes) }
+            var text = mode.displayName
+            if treatment.autoForced == true, let reasons = nonEmpty(treatment.reasons) {
+                // The master forced this from a constraint — the reason is the whole story.
+                text += " — " + reasons
+            }
+            return text
+        }
+        if let profile = nonEmpty(treatment.profileName) {
+            return profile
+        }
+        return nonEmpty(treatment.notes)
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
     }
 }
 

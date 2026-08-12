@@ -1,46 +1,92 @@
 import SwiftUI
 
+/// Which of the master's scenes may be offered for activation.
+enum RemoteSceneCatalog {
+    /// Disabled scenes are hidden on the master's own sheet and rejected on activation, so listing
+    /// them here would be offering a button that can only fail. Order is the master's `sortOrder`,
+    /// which the parser has already applied.
+    static func selectable(from definitions: [NsSceneDefinition]) -> [NsSceneDefinition] {
+        definitions.filter(\.isEnabled)
+    }
+}
+
 struct SceneRemoteControlView: View {
     @ObservedObject var store: AppStore
 
-    @State private var pairingStore = ClientPairingStore()
     @State private var preparedPreview: BolusPreview?
     @State private var preparedSceneId: String?
     @State private var statusText: String?
     @State private var isBusy = false
 
-    private var isPaired: Bool { pairingStore.currentPairing() != nil }
+    /// The app's single pairing store. Three views used to hold a `@State` instance each, which made
+    /// the durable counter and the master's single ack slot impossible to reason about.
+    private var pairingStore: ClientPairingStore { store.clientPairingStore }
+
+    /// `currentPairing()` returns nil while `needsRepair`, so it cannot answer "has the user ever
+    /// paired" — that question needs the display accessor, and the repair banner explains the rest.
+    private var isPaired: Bool { pairingStore.currentPairingIgnoringRepair() != nil }
+
+    /// nil while commands may actually be sent.
+    private var blockedReason: String? { ClientControlText.availability(store.masterControlAvailability) }
+
+    private var scenes: [NsSceneDefinition] { RemoteSceneCatalog.selectable(from: store.remoteSceneDefinitions) }
 
     var body: some View {
         Form {
             if !isPaired {
                 Section {
-                    Text("Pair with the master first (Settings -> Client Control) to activate scenes remotely.")
+                    Text("scene.pair_first")
                         .foregroundColor(.secondary)
                 }
             } else {
+                if let blockedReason {
+                    Section {
+                        Label(blockedReason, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                            .font(.caption)
+                    }
+                }
+
                 if let active = store.activeRemoteSceneDefinition {
-                    Section("Active Scene") {
-                        LabeledContent("Scene", value: store.activeRemoteSceneDisplayName ?? active.sceneId)
-                        Button("Stop Scene", role: .destructive) { stopScene(triggerChain: false) }
+                    Section("scene.section_active") {
+                        LabeledContent(String(localized: "scene.scene"),
+                                       value: store.activeRemoteSceneDisplayName ?? active.sceneId)
+                        Button(String(localized: "scene.stop"), role: .destructive) { stopScene(triggerChain: false) }
                             .disabled(isBusy)
                     }
                 }
 
-                Section("Available Scenes") {
-                    ForEach(store.remoteSceneDefinitions) { scene in
-                        Button(scene.name ?? scene.sceneId) { prepare(scene.sceneId) }
-                            .disabled(isBusy)
+                Section("scene.section_available") {
+                    if scenes.isEmpty {
+                        Text("scene.none_available")
+                            .foregroundColor(.secondary)
+                    }
+                    ForEach(scenes) { scene in
+                        Button { prepare(scene) } label: {
+                            HStack {
+                                Text(scene.name ?? scene.sceneId)
+                                if let minutes = scene.defaultDurationMinutes {
+                                    Spacer()
+                                    // What the master will actually apply, so the confirm sheet and
+                                    // the master agree on what the user is about to get.
+                                    Text(String(format: String(localized: "scene.default_duration"), minutes))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                        .disabled(isBusy)
                     }
                 }
 
                 if let preview = preparedPreview, let sceneId = preparedSceneId {
-                    Section("Confirm Activation") {
+                    Section("scene.section_confirm") {
                         ForEach(preview.lines, id: \.text) { line in
                             Text(line.text)
                         }
-                        Button("Confirm") { commit(preview.bolusId) }
-                        Button("Cancel", role: .cancel) {
+                        Button(String(localized: "scene.confirm")) { commit(preview.bolusId) }
+                            .disabled(isBusy)
+                        Button("cancel", role: .cancel) {
                             preparedPreview = nil
                             preparedSceneId = nil
                         }
@@ -56,101 +102,99 @@ struct SceneRemoteControlView: View {
                 }
             }
         }
-        .navigationTitle("Scenes")
+        .navigationTitle("scene.title")
     }
 
-    private func prepare(_ sceneId: String) {
+    // MARK: - Commands
+
+    /// One shape for all three commands: gate, run the round trip, feed the liveness clock, render.
+    ///
+    /// Every caller MUST go through here. `store.recordRoundTripOutcome` is what drives both the
+    /// master-liveness clock and the counter-desync detector, and both are dead without it.
+    private func run(
+        _ progress: String,
+        command: @escaping (ClientControlRoundTrip) async -> RoundTripOutcome,
+        onFinish: @escaping (RoundTripOutcome) -> Void
+    ) {
+        guard store.masterControlAvailability.canSend else {
+            // Rejecting locally beats burning a counter into a void and showing a generic timeout.
+            statusText = blockedReason
+            return
+        }
         isBusy = true
-        statusText = "Preparing..."
+        statusText = progress
         Task {
-            let publisher = ClientControlPublisher(client: store.client, pairingStore: pairingStore)
-            do {
-                let counter = try await publisher.sendScenePrepare(sceneId: sceneId, durationMinutes: nil)
-                let result = try await pollAck(publisher: publisher, counter: counter)
-                await MainActor.run {
-                    isBusy = false
-                    switch result {
-                    case .terminal(.ok, _, let payload):
-                        guard let payload, let data = payload.data(using: .utf8),
-                              let preview = try? JSONDecoder().decode(BolusPreview.self, from: data) else {
-                            statusText = "Prepared, but preview could not be read."
-                            return
-                        }
-                        preparedPreview = preview
-                        preparedSceneId = sceneId
-                        statusText = nil
-                    case .terminal(let status, let reason, _):
-                        statusText = "Prepare \(status.rawValue.lowercased())\(reason.map { ": \($0)" } ?? "")."
-                    case .pending:
-                        statusText = "No response from master yet - try again."
-                    case .invalidSignature:
-                        statusText = "Ack signature did not verify - rejected."
-                    case .staleTimestamp:
-                        statusText = "Ack timestamp is too far from device clock - rejected."
-                    }
+            let outcome = await command(store.clientControlRoundTrip)
+            await MainActor.run {
+                store.recordRoundTripOutcome(outcome)
+                isBusy = false
+                onFinish(outcome)
+            }
+        }
+    }
+
+    private func prepare(_ scene: NsSceneDefinition) {
+        run(String(localized: "scene.preparing")) { coordinator in
+            // nil defers to the scene's own stored default, resolved fresh by the master at receipt
+            // time. Our cached `defaultDurationMinutes` comes from the `scene_definitions` cold pref
+            // and can be a poll behind, so sending it would silently override an edited default.
+            await coordinator.scenePrepare(sceneId: scene.sceneId, durationMinutes: nil)
+        } onFinish: { outcome in
+            switch outcome {
+            case .applied:
+                guard let preview = outcome.preview else {
+                    statusText = String(localized: "scene.prepared_unreadable")
+                    return
                 }
-            } catch {
-                await MainActor.run {
-                    isBusy = false
-                    statusText = "Failed: \(error)"
-                }
+                preparedPreview = preview
+                preparedSceneId = scene.sceneId
+                statusText = nil
+            case .rejected, .unconfirmed:
+                // A prepare that we cannot confirm reserved nothing we may commit against.
+                preparedPreview = nil
+                preparedSceneId = nil
+                statusText = ClientControlText.failureText(for: outcome)
             }
         }
     }
 
     private func commit(_ bolusId: Int64) {
-        isBusy = true
-        statusText = "Activating..."
-        Task {
-            let publisher = ClientControlPublisher(client: store.client, pairingStore: pairingStore)
-            do {
-                try await publisher.sendSceneCommit(bolusId: bolusId)
-                try? await store.refresh()
-                await MainActor.run {
-                    isBusy = false
-                    preparedPreview = nil
-                    preparedSceneId = nil
-                    statusText = "Scene activated."
-                }
-            } catch {
-                await MainActor.run {
-                    isBusy = false
-                    statusText = "Commit failed: \(error)"
-                }
+        run(String(localized: "scene.activating")) { coordinator in
+            await coordinator.sceneCommit(bolusId: bolusId)
+        } onFinish: { outcome in
+            switch outcome {
+            case .applied:
+                preparedPreview = nil
+                preparedSceneId = nil
+                statusText = String(localized: "scene.activated")
+                // Only refresh on a definite answer; an unconfirmed commit must not be painted as
+                // applied by a status card that happens to update a second later.
+                Task { try? await store.refresh() }
+            case .rejected:
+                // The prepared dose may still be live on the master (e.g. ControlDisabled), so the
+                // confirm section stays up for a retry. NoPendingBolus tells the user to re-prepare.
+                statusText = ClientControlText.failureText(for: outcome)
+            case .unconfirmed:
+                // The master may still have activated it after we stopped listening — never say
+                // "activated", and never leave a stale confirm button that would double-apply it.
+                preparedPreview = nil
+                preparedSceneId = nil
+                statusText = ClientControlText.failureText(for: outcome)
             }
         }
     }
 
     private func stopScene(triggerChain: Bool) {
-        isBusy = true
-        statusText = "Stopping..."
-        Task {
-            let publisher = ClientControlPublisher(client: store.client, pairingStore: pairingStore)
-            do {
-                try await publisher.sendSceneStop(triggerChain: triggerChain)
-                try? await store.refresh()
-                await MainActor.run {
-                    isBusy = false
-                    statusText = "Scene stopped."
-                }
-            } catch {
-                await MainActor.run {
-                    isBusy = false
-                    statusText = "Stop failed: \(error)"
-                }
+        run(String(localized: "scene.stopping")) { coordinator in
+            await coordinator.sceneStop(triggerChain: triggerChain)
+        } onFinish: { outcome in
+            switch outcome {
+            case .applied:
+                statusText = String(localized: "scene.stopped")
+                Task { try? await store.refresh() }
+            case .rejected, .unconfirmed:
+                statusText = ClientControlText.failureText(for: outcome)
             }
         }
-    }
-
-    /// Polls a few times with a short delay — the master's ack write isn't instant. Matches the
-    /// existing pattern in `ClientControlPairingView.sendPing()`.
-    private func pollAck(publisher: ClientControlPublisher, counter: Int64) async throws -> ClientControlPublisher.AckResult {
-        for _ in 0..<5 {
-            try await Task.sleep(nanoseconds: 1_000_000_000)
-            let result = try await publisher.fetchAck(expectedCounter: counter)
-            if case .pending = result { continue }
-            return result
-        }
-        return .pending
     }
 }

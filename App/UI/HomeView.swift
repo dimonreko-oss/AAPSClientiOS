@@ -39,6 +39,7 @@ struct HomeView: View {
         ScrollView {
             VStack(spacing: 12) {
                 AlarmBannerView(store: store)
+                permanentFailureBanners
                 StatusCardView(
                     store: store,
                     units: units,
@@ -90,6 +91,39 @@ struct HomeView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Requires NS Accept Running Mode on master device")
+        }
+    }
+
+    // MARK: - Permanent failures
+
+    /// Two conditions that the offline banner used to swallow, and that no amount of waiting fixes:
+    /// a Nightscout token the server rejected (fix it in Settings) and a pairing the master will
+    /// never answer again (re-pair). Both need a different sentence and a different destination
+    /// from "connection lost".
+    @ViewBuilder
+    private var permanentFailureBanners: some View {
+        if store.credentialsInvalid {
+            Label("home.credentials_invalid", systemImage: "key.slash")
+                .font(.caption)
+                .foregroundColor(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(Color.red.opacity(0.1))
+                .cornerRadius(8)
+        }
+        if store.clientControlState.requiresRepairing,
+           let banner = ClientControlText.banner(store.clientControlState) {
+            NavigationLink {
+                ClientControlPairingView(store: store)
+            } label: {
+                Label(banner, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .background(Color.orange.opacity(0.1))
+                    .cornerRadius(8)
+            }
         }
     }
 

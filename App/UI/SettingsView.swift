@@ -97,6 +97,16 @@ struct SettingsView: View {
                     Text(result)
                         .foregroundColor(result.hasPrefix("OK") ? .green : .red)
                 }
+
+                // The socket falls back to polling silently by design; without this row a realtime
+                // feature that never engages on a given server is invisible instead of diagnosable.
+                HStack {
+                    Text("settings.realtime")
+                    Spacer()
+                    Text(store.realtimeStatus)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
             }
 
             Section("settings.glucose_units") {
@@ -200,9 +210,16 @@ struct SettingsView: View {
                     ForEach(store.remoteSceneDefinitions) { scene in
                         HStack {
                             Text(scene.name ?? scene.sceneId)
+                                // A disabled scene is listed here (this screen mirrors the master's
+                                // config) but is not offered for activation — see SceneRemoteControlView.
+                                .foregroundColor(scene.isEnabled ? .primary : .secondary)
                             Spacer()
-                            if let name = scene.name, name != scene.sceneId {
-                                Text(scene.sceneId)
+                            if let minutes = scene.defaultDurationMinutes {
+                                Text(String(format: String(localized: "scene.default_duration"), minutes))
+                                    .foregroundColor(.secondary)
+                            }
+                            if !scene.isEnabled {
+                                Text("remote.disabled")
                                     .foregroundColor(.secondary)
                             }
                         }
@@ -290,7 +307,13 @@ struct SettingsView: View {
             } header: {
                 Text("settings.keepalive")
             } footer: {
-                Text(String(localized: "settings.keepalive_caption"))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(String(localized: "settings.keepalive_caption"))
+                    // The battery cost has to be explicit: keep-alive is the only sub-5-minute path
+                    // without Apple push, and it is paid for in overnight battery.
+                    Text(String(localized: "settings.keepalive.battery_note"))
+                    Text(String(localized: "settings.alarms.focus_note"))
+                }
             }
         }
         .navigationTitle("settings.title")

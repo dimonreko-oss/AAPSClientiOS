@@ -173,3 +173,149 @@
 "settings.keepalive_normal" = "Normal";
 "settings.keepalive_aggressive" = "Aggressive";
 "settings.keepalive_caption" = "Normal polls in step with the sensor, about once every five minutes. Aggressive polls every minute for the freshest data and uses noticeably more battery. Off stops background updates entirely; data refreshes only when you open the app.";
+"settings.keepalive.battery_note" = "Keep-alive plays silent audio so iOS keeps the app running in the background. It is the only way to get updates more often than every five minutes without Apple push, and it costs battery — roughly 5-10% overnight. Off falls back to system background refresh plus the pre-scheduled no-data alarms, which can be 15-30 minutes late.";
+"settings.alarms.focus_note" = "Glucose alarms are marked Time Sensitive, so they break through Sleep Focus and Do Not Disturb. They will still be silent if the ring/silent switch is set to silent.";
+"settings.realtime" = "Realtime updates";
+
+/* Client Control - round-trip outcomes. Codes arrive on the wire as AAPS FailureReason names. */
+"clientcontrol.outcome.unconfirmed" = "No reply from the master — the state of this command is unknown. Check the master before retrying.";
+"clientcontrol.fail.not_paired" = "This device is not paired with a master.";
+"clientcontrol.fail.not_reachable" = "The master is offline.";
+"clientcontrol.fail.no_reply" = "No reply from the master in time.";
+"clientcontrol.fail.expired" = "The master received the command too late to apply it.";
+"clientcontrol.fail.busy" = "Another command is still in flight — try again in a moment.";
+"clientcontrol.fail.send_failed" = "Could not reach Nightscout to send the command.";
+"clientcontrol.fail.bad_signature" = "The master's reply did not verify — rejected.";
+"clientcontrol.fail.stale_ack" = "The master's reply is too far from this device's clock — rejected.";
+"clientcontrol.fail.needs_repair" = "Re-pair required — this install lost its message counter.";
+"clientcontrol.fail.revoked" = "This client was removed on the master. Pair again.";
+"clientcontrol.fail.no_active_profile" = "The master has no active profile to apply it onto.";
+"clientcontrol.fail.scene_not_found" = "The scene no longer exists on the master.";
+"clientcontrol.fail.scene_disabled" = "The scene is disabled on the master.";
+"clientcontrol.fail.partial" = "Some actions could not be applied.";
+"clientcontrol.fail.execution" = "The master could not apply it.";
+"clientcontrol.fail.control_disabled" = "Remote control is switched off on the master.";
+"clientcontrol.fail.no_action" = "There was nothing to do.";
+"clientcontrol.fail.no_pending_bolus" = "The prepared dose expired or was superseded. Prepare it again.";
+"clientcontrol.fail.bolus_compute" = "The master could not calculate the dose (missing glucose or profile, or the pump is not ready).";
+"clientcontrol.fail.internal" = "Something went wrong on the master.";
+"clientcontrol.fail.unknown" = "The master rejected the command.";
+"clientcontrol.fail.slot_tombstoned" = "This client's command slot on Nightscout was deleted and cannot be rewritten. Pair again to get a fresh one.";
+
+/* Client Control - whether a command may be sent at all */
+"clientcontrol.availability.not_paired" = "Not paired with a master.";
+"clientcontrol.availability.needs_repair" = "Re-pair required — open Settings › Client Control.";
+"clientcontrol.availability.revoked" = "This client was removed on the master. Pair again to continue.";
+"clientcontrol.availability.not_advertised" = "This master is too old for remote control.";
+"clientcontrol.availability.control_disabled" = "Remote control is switched off on the master.";
+"clientcontrol.availability.unreachable" = "The master has not reported in recently — commands would time out.";
+
+/* Client Control - durable pairing state */
+"clientcontrol.state.paired_pending" = "Paired, waiting for the master to confirm. Send a ping from Settings › Client Control.";
+"clientcontrol.state.paired_pending_expired" = "The master never confirmed this pairing and its 2-minute window has closed. Pair again.";
+"clientcontrol.state.needs_repair" = "Re-pair required — this install inherited a pairing but not its message counter.";
+"clientcontrol.state.revoked" = "This client was removed on the master. Pair again to restore remote control.";
+"clientcontrol.state.counter_desynced" = "The master is answering, but not this client's commands. Pair again to resync.";
+
+/* Client Control - pairing screen */
+"clientcontrol.title" = "Client Control";
+"clientcontrol.section_title" = "Client Control";
+"clientcontrol.client_id" = "Client ID";
+"clientcontrol.master" = "Master";
+"clientcontrol.pin" = "8-digit PIN";
+"clientcontrol.find_offer" = "Find Pairing Offer";
+"clientcontrol.searching" = "Searching...";
+"clientcontrol.confirm_master" = "Confirm Master";
+"clientcontrol.confirm_pairing" = "Confirm Pairing";
+"clientcontrol.offer_expires_in" = "Expires in";
+"clientcontrol.offer_seconds" = "%d s";
+"clientcontrol.offer_found" = "Pairing offer found.";
+"clientcontrol.offer_ambiguous" = "More than one offer matched this PIN. Generate a new PIN and try again.";
+"clientcontrol.offer_none" = "No matching pairing offer found.";
+"clientcontrol.offer_expired" = "This pairing offer has expired. Generate a new PIN on the master and try again.";
+"clientcontrol.search_failed" = "Search failed: %@";
+"clientcontrol.send_ping" = "Send Ping";
+"clientcontrol.ping_sending" = "Sending ping...";
+"clientcontrol.ping_ok" = "Ping acknowledged by the master.";
+"clientcontrol.resend_hello" = "Resend hello";
+"clientcontrol.hello_sending" = "Paired. Sending hello...";
+"clientcontrol.hello_sent" = "Paired and hello sent. Send a ping to confirm.";
+"clientcontrol.hello_failed" = "Paired, but hello failed: %@ — tap Resend hello.";
+"clientcontrol.unpair" = "Unpair";
+"clientcontrol.unpaired" = "Unpaired.";
+"clientcontrol.repair_title" = "Re-pair required";
+"clientcontrol.repair_message" = "This install inherited the pairing with %@ from a previous one, but not its message counter. Every command would be dropped by the master without a reply.";
+"clientcontrol.repair_action" = "Unpair and re-pair";
+
+/* Scenes */
+"scene.title" = "Scenes";
+"scene.scene" = "Scene";
+"scene.pair_first" = "Pair with the master first (Settings › Client Control) to activate scenes remotely.";
+"scene.section_active" = "Active Scene";
+"scene.section_available" = "Available Scenes";
+"scene.section_confirm" = "Confirm Activation";
+"scene.none_available" = "The master has no enabled scenes.";
+"scene.default_duration" = "%d min";
+"scene.stop" = "Stop Scene";
+"scene.confirm" = "Confirm";
+"scene.preparing" = "Preparing...";
+"scene.activating" = "Activating...";
+"scene.stopping" = "Stopping...";
+"scene.activated" = "Scene activated.";
+"scene.stopped" = "Scene stopped.";
+"scene.prepared_unreadable" = "Prepared, but the master's preview could not be read.";
+
+/* Bolus calculator - read-only view of the master's wizard */
+"bolus.title" = "Bolus Calculator";
+"bolus.disclaimer" = "Shows what the master's bolus wizard would currently calculate. This is informational only — nothing is sent to the pump, and no confirmation step exists in this app for it.";
+"bolus.pair_first" = "Pair with the master first (Settings › Client Control) to use the calculator.";
+"bolus.section_inputs" = "Inputs";
+"bolus.carbs" = "Carbs (g)";
+"bolus.bg_override" = "BG override (mg/dl)";
+"bolus.use_cob" = "Use COB";
+"bolus.use_iob" = "Use IOB";
+"bolus.use_tt" = "Use Temp Target";
+"bolus.use_trend" = "Use Trend";
+"bolus.use_bg" = "Use BG";
+"bolus.correction" = "Correction: %d%%";
+"bolus.calculate" = "Calculate";
+"bolus.calculating" = "Calculating...";
+"bolus.section_result" = "Result";
+"bolus.section_master_text" = "Master's Confirmation Text";
+"bolus.total" = "Total";
+"bolus.capped_from" = "Capped from";
+"bolus.capped_note" = "The master reduced this dose to satisfy one of its constraints.";
+"bolus.from_carbs" = "From carbs";
+"bolus.from_bg" = "From BG";
+"bolus.from_cob" = "From COB";
+"bolus.from_iob" = "From IOB";
+"bolus.unreadable" = "The master's reply could not be read.";
+
+/* Running mode (AAPS v4 RM.Mode) */
+"status.running_mode" = "Mode: %@";
+"runningmode.open_loop" = "Open Loop";
+"runningmode.closed_loop" = "Closed Loop";
+"runningmode.closed_loop_lgs" = "Closed Loop (LGS)";
+"runningmode.disabled_loop" = "Loop Disabled";
+"runningmode.super_bolus" = "Super Bolus";
+"runningmode.disconnected_pump" = "Pump Disconnected";
+"runningmode.suspended_by_pump" = "Suspended by Pump";
+"runningmode.suspended_by_user" = "Suspended";
+"runningmode.suspended_by_dst" = "Suspended (DST)";
+"runningmode.resume" = "Resume";
+"runningmode.unknown" = "Unknown";
+"runningmode.auto_forced" = "forced";
+
+/* Master config */
+"remote.active_calibration" = "Active Calibration Plugin";
+"remote.fork_master" = "Custom AAPS Build";
+"remote.not_advertised" = "Not advertised";
+"remote.capability_footer" = "What the master actually published. Anything not advertised is treated as allowed, so an older master cannot lock this app out of an action.";
+
+/* Home banners */
+"home.credentials_invalid_title" = "Nightscout rejected this token";
+"home.credentials_invalid" = "Nightscout token rejected — check Settings";
+
+/* Carbs-required notification */
+"status.carbs_required_title" = "Carbs needed";
+"status.carbs_required" = "%1$d g carbs needed within %2$d min";

@@ -173,3 +173,149 @@
 "settings.keepalive_normal" = "Обычный";
 "settings.keepalive_aggressive" = "Агрессивный";
 "settings.keepalive_caption" = "Обычный опрашивает сервер в такт сенсору, примерно раз в пять минут. Агрессивный опрашивает раз в минуту: данные свежее, но батарея садится заметно быстрее. Выключено полностью останавливает фоновое обновление: данные обновятся только при открытии приложения.";
+"settings.keepalive.battery_note" = "Режим удержания проигрывает беззвучный звук, чтобы iOS не выгружал приложение. Это единственный способ получать обновления чаще, чем раз в пять минут, без push-уведомлений Apple, и он расходует батарею — примерно 5-10% за ночь. В режиме «Выключено» остаются системное фоновое обновление и заранее запланированные оповещения об отсутствии данных, которые могут опаздывать на 15-30 минут.";
+"settings.alarms.focus_note" = "Оповещения о глюкозе помечены как «Срочные» (Time Sensitive) и проходят сквозь режим сна и «Не беспокоить». При включённом беззвучном режиме они всё равно будут без звука.";
+"settings.realtime" = "Обновления в реальном времени";
+
+/* Client Control — результат команды. Коды приходят по сети как имена FailureReason из AAPS. */
+"clientcontrol.outcome.unconfirmed" = "Мастер не ответил — состояние этой команды неизвестно. Проверьте мастер, прежде чем повторять.";
+"clientcontrol.fail.not_paired" = "Это устройство не привязано к мастеру.";
+"clientcontrol.fail.not_reachable" = "Мастер офлайн.";
+"clientcontrol.fail.no_reply" = "Мастер не ответил вовремя.";
+"clientcontrol.fail.expired" = "Мастер получил команду слишком поздно, чтобы её выполнить.";
+"clientcontrol.fail.busy" = "Другая команда ещё выполняется — повторите через мгновение.";
+"clientcontrol.fail.send_failed" = "Не удалось связаться с Nightscout, чтобы отправить команду.";
+"clientcontrol.fail.bad_signature" = "Подпись ответа мастера не сошлась — отклонено.";
+"clientcontrol.fail.stale_ack" = "Время ответа мастера слишком далеко от часов устройства — отклонено.";
+"clientcontrol.fail.needs_repair" = "Нужна повторная привязка — эта установка потеряла счётчик сообщений.";
+"clientcontrol.fail.revoked" = "Этот клиент удалён на мастере. Выполните привязку заново.";
+"clientcontrol.fail.no_active_profile" = "На мастере нет активного профиля, к которому это можно применить.";
+"clientcontrol.fail.scene_not_found" = "Такой сцены на мастере больше нет.";
+"clientcontrol.fail.scene_disabled" = "Сцена отключена на мастере.";
+"clientcontrol.fail.partial" = "Часть действий выполнить не удалось.";
+"clientcontrol.fail.execution" = "Мастер не смог это выполнить.";
+"clientcontrol.fail.control_disabled" = "Удалённое управление выключено на мастере.";
+"clientcontrol.fail.no_action" = "Выполнять было нечего.";
+"clientcontrol.fail.no_pending_bolus" = "Подготовленная доза истекла или была заменена. Подготовьте её заново.";
+"clientcontrol.fail.bolus_compute" = "Мастер не смог рассчитать дозу (нет глюкозы или профиля, либо помпа не готова).";
+"clientcontrol.fail.internal" = "На мастере произошла ошибка.";
+"clientcontrol.fail.unknown" = "Мастер отклонил команду.";
+"clientcontrol.fail.slot_tombstoned" = "Слот команд этого клиента в Nightscout удалён и не может быть перезаписан. Выполните сопряжение заново.";
+
+/* Client Control — можно ли вообще отправить команду */
+"clientcontrol.availability.not_paired" = "Нет привязки к мастеру.";
+"clientcontrol.availability.needs_repair" = "Нужна повторная привязка — откройте Настройки › Client Control.";
+"clientcontrol.availability.revoked" = "Этот клиент удалён на мастере. Привяжитесь заново, чтобы продолжить.";
+"clientcontrol.availability.not_advertised" = "Этот мастер слишком старый для удалённого управления.";
+"clientcontrol.availability.control_disabled" = "Удалённое управление выключено на мастере.";
+"clientcontrol.availability.unreachable" = "Мастер давно не выходил на связь — команда не дождётся ответа.";
+
+/* Client Control — состояние привязки */
+"clientcontrol.state.paired_pending" = "Привязка создана, ждём подтверждения мастера. Отправьте ping из Настройки › Client Control.";
+"clientcontrol.state.paired_pending_expired" = "Мастер так и не подтвердил привязку, а её двухминутное окно закрылось. Привяжитесь заново.";
+"clientcontrol.state.needs_repair" = "Нужна повторная привязка — эта установка унаследовала привязку, но не счётчик сообщений.";
+"clientcontrol.state.revoked" = "Этот клиент удалён на мастере. Привяжитесь заново, чтобы вернуть удалённое управление.";
+"clientcontrol.state.counter_desynced" = "Мастер отвечает, но не на команды этого клиента. Привяжитесь заново для синхронизации.";
+
+/* Client Control — экран привязки */
+"clientcontrol.title" = "Client Control";
+"clientcontrol.section_title" = "Client Control";
+"clientcontrol.client_id" = "ID клиента";
+"clientcontrol.master" = "Мастер";
+"clientcontrol.pin" = "8-значный PIN";
+"clientcontrol.find_offer" = "Найти предложение привязки";
+"clientcontrol.searching" = "Поиск...";
+"clientcontrol.confirm_master" = "Подтвердите мастер";
+"clientcontrol.confirm_pairing" = "Подтвердить привязку";
+"clientcontrol.offer_expires_in" = "Истекает через";
+"clientcontrol.offer_seconds" = "%d с";
+"clientcontrol.offer_found" = "Предложение привязки найдено.";
+"clientcontrol.offer_ambiguous" = "Этому PIN соответствует больше одного предложения. Создайте новый PIN и повторите.";
+"clientcontrol.offer_none" = "Подходящее предложение привязки не найдено.";
+"clientcontrol.offer_expired" = "Это предложение привязки истекло. Создайте новый PIN на мастере и повторите.";
+"clientcontrol.search_failed" = "Поиск не удался: %@";
+"clientcontrol.send_ping" = "Отправить ping";
+"clientcontrol.ping_sending" = "Отправляем ping...";
+"clientcontrol.ping_ok" = "Мастер подтвердил ping.";
+"clientcontrol.resend_hello" = "Отправить hello ещё раз";
+"clientcontrol.hello_sending" = "Привязано. Отправляем hello...";
+"clientcontrol.hello_sent" = "Привязано, hello отправлен. Отправьте ping для подтверждения.";
+"clientcontrol.hello_failed" = "Привязано, но hello не прошёл: %@ — нажмите «Отправить hello ещё раз».";
+"clientcontrol.unpair" = "Отвязать";
+"clientcontrol.unpaired" = "Отвязано.";
+"clientcontrol.repair_title" = "Нужна повторная привязка";
+"clientcontrol.repair_message" = "Эта установка унаследовала привязку с %@ от предыдущей, но не её счётчик сообщений. Мастер будет отбрасывать любую команду без ответа.";
+"clientcontrol.repair_action" = "Отвязать и привязать заново";
+
+/* Сцены */
+"scene.title" = "Сцены";
+"scene.scene" = "Сцена";
+"scene.pair_first" = "Сначала выполните привязку к мастеру (Настройки › Client Control), чтобы включать сцены удалённо.";
+"scene.section_active" = "Активная сцена";
+"scene.section_available" = "Доступные сцены";
+"scene.section_confirm" = "Подтвердите включение";
+"scene.none_available" = "На мастере нет включённых сцен.";
+"scene.default_duration" = "%d мин";
+"scene.stop" = "Остановить сцену";
+"scene.confirm" = "Подтвердить";
+"scene.preparing" = "Подготовка...";
+"scene.activating" = "Включение...";
+"scene.stopping" = "Остановка...";
+"scene.activated" = "Сцена включена.";
+"scene.stopped" = "Сцена остановлена.";
+"scene.prepared_unreadable" = "Подготовлено, но предпросмотр мастера не удалось прочитать.";
+
+/* Калькулятор болюса — только просмотр расчёта мастера */
+"bolus.title" = "Калькулятор болюса";
+"bolus.disclaimer" = "Показывает, что сейчас рассчитал бы мастер-калькулятор болюса. Только для информации — на помпу ничего не отправляется, и шага подтверждения в этом приложении нет.";
+"bolus.pair_first" = "Сначала выполните привязку к мастеру (Настройки › Client Control), чтобы пользоваться калькулятором.";
+"bolus.section_inputs" = "Исходные данные";
+"bolus.carbs" = "Углеводы (г)";
+"bolus.bg_override" = "Своя глюкоза (мг/дл)";
+"bolus.use_cob" = "Учитывать COB";
+"bolus.use_iob" = "Учитывать IOB";
+"bolus.use_tt" = "Учитывать временную цель";
+"bolus.use_trend" = "Учитывать тренд";
+"bolus.use_bg" = "Учитывать глюкозу";
+"bolus.correction" = "Коррекция: %d%%";
+"bolus.calculate" = "Рассчитать";
+"bolus.calculating" = "Расчёт...";
+"bolus.section_result" = "Результат";
+"bolus.section_master_text" = "Текст подтверждения мастера";
+"bolus.total" = "Итого";
+"bolus.capped_from" = "Ограничено с";
+"bolus.capped_note" = "Мастер уменьшил эту дозу из-за одного из своих ограничений.";
+"bolus.from_carbs" = "От углеводов";
+"bolus.from_bg" = "От глюкозы";
+"bolus.from_cob" = "От COB";
+"bolus.from_iob" = "От IOB";
+"bolus.unreadable" = "Ответ мастера не удалось прочитать.";
+
+/* Режим работы петли (AAPS v4 RM.Mode) */
+"status.running_mode" = "Режим: %@";
+"runningmode.open_loop" = "Открытый цикл";
+"runningmode.closed_loop" = "Закрытый цикл";
+"runningmode.closed_loop_lgs" = "Закрытый цикл (LGS)";
+"runningmode.disabled_loop" = "Цикл выключен";
+"runningmode.super_bolus" = "Супер болюс";
+"runningmode.disconnected_pump" = "Помпа отключена";
+"runningmode.suspended_by_pump" = "Приостановлено помпой";
+"runningmode.suspended_by_user" = "Приостановлено";
+"runningmode.suspended_by_dst" = "Приостановлено (перевод часов)";
+"runningmode.resume" = "Возобновить";
+"runningmode.unknown" = "Неизвестно";
+"runningmode.auto_forced" = "принудительно";
+
+/* Конфигурация мастера */
+"remote.active_calibration" = "Активный плагин калибровки";
+"remote.fork_master" = "Кастомная сборка AAPS";
+"remote.not_advertised" = "Не объявлено";
+"remote.capability_footer" = "То, что мастер действительно опубликовал. Всё, что не объявлено, считается разрешённым, поэтому старый мастер не может заблокировать действия в приложении.";
+
+/* Баннеры на главном экране */
+"home.credentials_invalid_title" = "Nightscout отклонил токен";
+"home.credentials_invalid" = "Nightscout отклонил токен — проверьте Настройки";
+
+/* Уведомление о необходимости углеводов */
+"status.carbs_required_title" = "Нужны углеводы";
+"status.carbs_required" = "Нужно %1$d г углеводов в течение %2$d мин";

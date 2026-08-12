@@ -13,6 +13,11 @@ struct MasterConfigView: View {
                     if let version = cold.version {
                         valueRow("remote.master_version", value: version)
                     }
+                    if store.isForkMaster {
+                        // Display only. The client-control surface is byte-identical on both AAPS
+                        // branches, so nothing may be gated on this.
+                        valueRow("remote.fork_master", value: String(localized: "remote.enabled"))
+                    }
                     if let autosens = store.remoteConfigHot?.usedAutosensOnMainPhone {
                         booleanRow("remote.autosens", value: autosens)
                     }
@@ -28,6 +33,11 @@ struct MasterConfigView: View {
                     }
                     if let smoothing = plugins.activePluginSmoothing {
                         valueRow("remote.active_smoothing", value: smoothing)
+                    }
+                    // Exposed all along but never rendered; it only started populating once the
+                    // synced-prefs key names were corrected to the real AAPS preference strings.
+                    if let calibration = plugins.activePluginCalibration {
+                        valueRow("remote.active_calibration", value: calibration)
                     }
                 }
 
@@ -47,13 +57,19 @@ struct MasterConfigView: View {
 
                 if let capabilities = store.remoteCapabilities {
                     Section {
-                        booleanRow("remote.capability.profile", value: capabilities.canRemoteProfileSwitch)
-                        booleanRow("remote.capability.loop", value: capabilities.canRemoteRunningMode)
-                        booleanRow("remote.capability.target", value: capabilities.canRemoteTempTarget)
-                        booleanRow("remote.capability.carbs", value: capabilities.canRemoteCarbs)
-                        booleanRow("remote.capability.events", value: capabilities.canRemoteTherapyEvents)
-                        booleanRow("remote.capability.client_control", value: capabilities.clientControlEnabled)
+                        // Published values, not the fail-open booleans the action gates use: on this
+                        // screen "the master never said" is the answer, and today it is the usual
+                        // one — none of the `NsClientAccept*` keys carries a `SyncSpec`, so a stock
+                        // master publishes none of them.
+                        capabilityRow("remote.capability.profile", value: capabilities.publishedFlag(for: .profileSwitch))
+                        capabilityRow("remote.capability.loop", value: capabilities.publishedFlag(for: .runningMode))
+                        capabilityRow("remote.capability.target", value: capabilities.publishedFlag(for: .tempTarget))
+                        capabilityRow("remote.capability.carbs", value: capabilities.publishedFlag(for: .carbs))
+                        capabilityRow("remote.capability.events", value: capabilities.publishedFlag(for: .therapyEvents))
+                        capabilityRow("remote.capability.client_control", value: capabilities.publishedClientControlEnabled)
                         booleanRow("remote.capability.websocket", value: capabilities.usesWebSockets)
+                    } footer: {
+                        Text(String(localized: "remote.capability_footer"))
                     }
                 }
 
@@ -109,5 +125,17 @@ struct MasterConfigView: View {
 
     private func booleanRow(_ label: LocalizedStringKey, value: Bool) -> some View {
         valueRow(label, value: String(localized: value ? "remote.enabled" : "remote.disabled"))
+    }
+
+    /// Tri-state: an absent flag is "not advertised", which is a different fact from "off" and the
+    /// reason the follower fails open on it.
+    private func capabilityRow(_ label: LocalizedStringKey, value: Bool?) -> some View {
+        let text: String
+        if let value {
+            text = String(localized: value ? "remote.enabled" : "remote.disabled")
+        } else {
+            text = String(localized: "remote.not_advertised")
+        }
+        return valueRow(label, value: text)
     }
 }

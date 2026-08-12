@@ -18,7 +18,12 @@ struct ProfileView: View {
 
     private var profileSwitchReason: String? {
         guard store.remoteCapabilities != nil, !canSwitchProfile else { return nil }
-        return String(format: String(localized: "remote.disabled_reason"), NsRemoteCapabilityKey.profileSwitch.rawValue)
+        // The raw value is the wire key (`ns_receive_profile_switch`) — truthful, but not a name to
+        // show a user. Every other gated action already renders the localized capability name.
+        return String(
+            format: String(localized: "remote.disabled_reason"),
+            NSLocalizedString(NsRemoteCapabilityKey.profileSwitch.localizationKey, comment: "")
+        )
     }
 
     private var units: GlucoseUnits { store.displayUnits }

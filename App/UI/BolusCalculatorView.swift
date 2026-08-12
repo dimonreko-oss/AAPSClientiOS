@@ -3,7 +3,6 @@ import SwiftUI
 struct BolusCalculatorView: View {
     @ObservedObject var store: AppStore
 
-    @State private var pairingStore = ClientPairingStore()
     @State private var carbsText = ""
     @State private var bgText = ""
     @State private var useCob = true
@@ -16,52 +15,83 @@ struct BolusCalculatorView: View {
     @State private var statusText: String?
     @State private var preview: BolusPreview?
 
-    private var isPaired: Bool { pairingStore.currentPairing() != nil }
+    private var pairingStore: ClientPairingStore { store.clientPairingStore }
+
+    /// Display accessor: `currentPairing()` is nil while `needsRepair`, which is a paired install
+    /// that must re-pair — a different sentence from "you have never paired".
+    private var isPaired: Bool { pairingStore.currentPairingIgnoringRepair() != nil }
+
+    private var blockedReason: String? { ClientControlText.availability(store.masterControlAvailability) }
 
     var body: some View {
         Form {
             Section {
-                Text("Shows what the master's bolus wizard would currently calculate. This is informational only — nothing is sent to the pump, and no confirmation step exists in this app for it.")
+                Text("bolus.disclaimer")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
 
             if !isPaired {
                 Section {
-                    Text("Pair with the master first (Settings → Client Control) to use the calculator.")
+                    Text("bolus.pair_first")
                         .foregroundColor(.secondary)
                 }
             } else {
-                Section("Inputs") {
-                    TextField("Carbs (g)", text: $carbsText).keyboardType(.numberPad)
-                    TextField("BG override (mg/dl)", text: $bgText).keyboardType(.numberPad)
-                    Toggle("Use COB", isOn: $useCob)
-                    Toggle("Use IOB", isOn: $useIob)
-                    Toggle("Use Temp Target", isOn: $useTt)
-                    Toggle("Use Trend", isOn: $useTrend)
-                    Toggle("Use BG", isOn: $useBg)
-                    Stepper("Correction: \(percentage)%", value: $percentage, in: 0...200, step: 5)
+                if let blockedReason {
+                    Section {
+                        Label(blockedReason, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                            .font(.caption)
+                    }
+                }
+
+                Section("bolus.section_inputs") {
+                    TextField("bolus.carbs", text: $carbsText).keyboardType(.numberPad)
+                    // Always mg/dL — `calculate()` converts to the master's units on send, so the
+                    // numberPad (no decimal point) is correct whatever the master's profile says.
+                    TextField("bolus.bg_override", text: $bgText).keyboardType(.numberPad)
+                    Toggle("bolus.use_cob", isOn: $useCob)
+                    Toggle("bolus.use_iob", isOn: $useIob)
+                    Toggle("bolus.use_tt", isOn: $useTt)
+                    Toggle("bolus.use_trend", isOn: $useTrend)
+                    Toggle("bolus.use_bg", isOn: $useBg)
+                    Stepper(String(format: String(localized: "bolus.correction"), percentage),
+                            value: $percentage, in: 0...200, step: 5)
                 }
 
                 Section {
-                    Button(isBusy ? "Calculating..." : "Calculate") { calculate() }
-                        .disabled(isBusy || carbsText.isEmpty)
+                    Button(isBusy ? String(localized: "bolus.calculating") : String(localized: "bolus.calculate")) {
+                        calculate()
+                    }
+                    .disabled(isBusy || carbsText.isEmpty)
                 }
 
                 if let detail = preview?.wizardDetail {
-                    Section("Result") {
-                        LabeledContent("Total", value: String(format: "%.2f U", detail.totalInsulin))
-                        LabeledContent("From carbs", value: String(format: "%.2f U", detail.insulinFromCarbs))
-                        LabeledContent("From BG", value: String(format: "%.2f U", detail.insulinFromBG))
-                        LabeledContent("From COB", value: String(format: "%.2f U", detail.insulinFromCOB))
-                        LabeledContent("From IOB", value: String(format: "%.2f U", detail.insulinFromBolusIOB + detail.insulinFromBasalIOB))
+                    Section("bolus.section_result") {
+                        LabeledContent(String(localized: "bolus.total"), value: String(format: "%.2f U", detail.totalInsulin))
+                        if detail.wasCapped, let unclamped = detail.unclampedInsulin {
+                            // The master only sends `unclampedInsulin` when a constraint reduced the
+                            // dose, so its presence IS the "your dose was capped" signal.
+                            LabeledContent(String(localized: "bolus.capped_from"), value: String(format: "%.2f U", unclamped))
+                                .foregroundColor(.orange)
+                        }
+                        LabeledContent(String(localized: "bolus.from_carbs"), value: String(format: "%.2f U", detail.insulinFromCarbs))
+                        LabeledContent(String(localized: "bolus.from_bg"), value: String(format: "%.2f U", detail.insulinFromBG))
+                        LabeledContent(String(localized: "bolus.from_cob"), value: String(format: "%.2f U", detail.insulinFromCOB))
+                        LabeledContent(String(localized: "bolus.from_iob"),
+                                       value: String(format: "%.2f U", detail.insulinFromBolusIOB + detail.insulinFromBasalIOB))
                         LabeledContent("IC", value: String(format: "%.1f", detail.ic))
                         LabeledContent("ISF", value: String(format: "%.1f", detail.sens))
+                        if detail.wasCapped {
+                            Text("bolus.capped_note")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
 
                 if let preview {
-                    Section("Master's Confirmation Text") {
+                    Section("bolus.section_master_text") {
                         ForEach(preview.lines, id: \.text) { Text($0.text) }
                     }
                 }
@@ -71,9 +101,9 @@ struct BolusCalculatorView: View {
                 Section { Text(statusText).foregroundColor(.secondary) }
             }
         }
-        .navigationTitle("Bolus Calculator")
+        .navigationTitle("bolus.title")
         .onAppear {
-            if bgText.isEmpty, let last = store.readings.last {
+            if bgText.isEmpty, let last = store.readings.first {
                 bgText = String(last.mgdl)
             }
         }
@@ -81,56 +111,46 @@ struct BolusCalculatorView: View {
 
     private func calculate() {
         guard let carbs = Int(carbsText) else { return }
-        let bg = Double(bgText) ?? Double(store.readings.last?.mgdl ?? 0)
+        // The field is mg/dL (numberPad, prefilled from the last reading), but `WizardPrepare.bg`
+        // travels in the MASTER's display units — `BolusWizard.doCalc` compares it against
+        // `fromMgdlToUnits(target)`. Convert on send, using the master's uploaded profile units.
+        let bgMgdl = Double(bgText) ?? Double(store.readings.first?.mgdl ?? 0)
+        let bg = ClientControlMessage.WizardPrepare.bgValue(
+            mgdl: bgMgdl,
+            masterUnits: store.profile?.units ?? .mgdl
+        )
+        guard store.masterControlAvailability.canSend else {
+            statusText = blockedReason
+            return
+        }
         isBusy = true
-        statusText = "Calculating..."
+        statusText = String(localized: "bolus.calculating")
         preview = nil
         Task {
-            let publisher = ClientControlPublisher(client: store.client, pairingStore: pairingStore)
             let inputs = ClientControlMessage.WizardPrepare(
                 bg: bg, carbs: carbs, percentage: percentage, directCorrection: 0, carbTime: 0,
                 useBg: useBg, useCob: useCob, useIob: useIob, useTt: useTt, useTrend: useTrend,
                 alarm: false, notes: "", eCarbsGrams: 0, eCarbsDelayMinutes: 0, eCarbsDurationHours: 0,
                 profileName: nil
             )
-            do {
-                let counter = try await publisher.sendWizardPrepare(inputs)
-                let result = try await pollAck(publisher: publisher, counter: counter)
-                await MainActor.run {
-                    isBusy = false
-                    switch result {
-                    case .terminal(.ok, _, let payload):
-                        guard let payload, let data = payload.data(using: .utf8),
-                              let decoded = try? JSONDecoder().decode(BolusPreview.self, from: data) else {
-                            statusText = "Response could not be read."
-                            return
-                        }
-                        preview = decoded
-                        statusText = nil
-                    case .terminal(let status, let reason, _):
-                        statusText = "Calculation \(status.rawValue.lowercased())\(reason.map { ": \($0)" } ?? "")."
-                    case .pending:
-                        statusText = "No response from master yet — try again."
-                    case .invalidSignature:
-                        statusText = "Ack signature did not verify — rejected."
-                    case .staleTimestamp:
-                        statusText = "Ack timestamp is too far from device clock — rejected."
+            // Read-only by design: there is no commit for this in the app, ever.
+            let outcome = await store.clientControlRoundTrip.wizardPrepare(inputs)
+            await MainActor.run {
+                store.recordRoundTripOutcome(outcome)
+                isBusy = false
+                switch outcome {
+                case .applied:
+                    guard let decoded = outcome.preview else {
+                        statusText = String(localized: "bolus.unreadable")
+                        return
                     }
+                    preview = decoded
+                    statusText = nil
+                case .rejected, .unconfirmed:
+                    preview = nil
+                    statusText = ClientControlText.failureText(for: outcome)
                 }
-            } catch {
-                await MainActor.run { isBusy = false; statusText = "Failed: \(error)" }
             }
         }
-    }
-
-    /// Matches the existing poll pattern in `ClientControlPairingView.sendPing()`.
-    private func pollAck(publisher: ClientControlPublisher, counter: Int64) async throws -> ClientControlPublisher.AckResult {
-        for _ in 0..<5 {
-            try await Task.sleep(nanoseconds: 1_000_000_000)
-            let result = try await publisher.fetchAck(expectedCounter: counter)
-            if case .pending = result { continue }
-            return result
-        }
-        return .pending
     }
 }
