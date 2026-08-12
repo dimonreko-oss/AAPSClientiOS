@@ -31,6 +31,8 @@ enum NsMapping {
             let createdAt = (d["created_at"] as? String).flatMap(isoParse)
             let eventType = (d["eventType"] as? String) ?? ""
             let rawNotes = d["notes"] as? String
+            let mode = d["mode"] as? String
+            let target = parseTTTarget(from: d)
             return Treatment(
                 id: (d["identifier"] as? String) ?? (d["_id"] as? String) ?? UUID().uuidString,
                 eventType: eventType,
@@ -39,55 +41,121 @@ enum NsMapping {
                 carbs: num(d["carbs"]),
                 durationMin: intVal(d["duration"]),
                 enteredBy: d["enteredBy"] as? String,
-                notes: (rawNotes?.isEmpty == false) ? rawNotes : loopModeLabel(eventType: eventType, mode: d["mode"] as? String),
-                targetBottom: parseTTTarget(from: d).bottom,
-                targetTop: parseTTTarget(from: d).top,
-                profileName: d["profile"] as? String,
+                notes: (rawNotes?.isEmpty == false) ? rawNotes : loopModeLabel(eventType: eventType, mode: mode),
+                targetBottom: target.bottom,
+                targetTop: target.top,
+                // v4 writes the customized display name ("Weekday (80%,2h)") into `profile` and the plain
+                // name into `originalProfileName`; the master's own read-back
+                // (`NSProfileSwitch.toProfileSwitch`) prefers `originalProfileName`, and only that one
+                // matches an entry in `NsProfileStore.profileNames`.
+                profileName: (d["originalProfileName"] as? String) ?? (d["profile"] as? String),
                 percentage: intVal(d["percentage"]),
                 absolute: num(d["absolute"]),
-                tempBasalPercent: intVal(d["percent"])
+                tempBasalPercent: intVal(d["percent"]),
+                mode: mode,
+                originalDurationMs: num(d["originalDuration"]).map { Int64($0) },
+                autoForced: boolVal(d["autoForced"]),
+                reasons: d["reasons"] as? String,
+                isValid: boolVal(d["isValid"]) ?? true
             )
         }
     }
 
+    /// Maps a `devicestatus` page to the current loop state.
+    ///
+    /// AAPS v4 uploads a devicestatus every 5 minutes even while the loop is *not* running
+    /// (`KeepAliveWorker` → `scheduleBuildAndStoreDeviceStatus`), and `LoopPlugin.buildAndStoreDeviceStatus`
+    /// omits `suggested`/`enacted`/`iob` entirely once the last APS run is older than 300 s. Such a
+    /// document carries only the pump block. Reporting it as a fresh loop with IOB 0 / COB 0 is the
+    /// exact inverse of the truth and is the *normal* shape while the master is suspended, so a page
+    /// with no APS result anywhere yields nil and the loop dot goes `.unknown`.
+    ///
+    /// When the page holds more than one record (fetch with `limit > 1`) the newest record carrying an
+    /// APS result supplies the loop numbers while pump/battery/reservoir still come from the newest
+    /// record overall — the pump telemetry is fresh even when the loop is stopped.
     static func loopStatus(from data: Data) throws -> LoopStatus? {
-        guard let latest = try resultArray(data).first else { return nil }
+        let records = try resultArray(data)
+        guard let newest = records.first else { return nil }
+        guard let apsRecord = records.first(where: { hasApsResult($0) }) else { return nil }
 
-        let openaps = latest["openaps"] as? [String: Any]
+        let openaps = apsRecord["openaps"] as? [String: Any]
         let enacted = openaps?["enacted"] as? [String: Any]
         let suggested = openaps?["suggested"] as? [String: Any]
         let active = enacted ?? suggested
         let iobObj = openaps?["iob"] as? [String: Any]
-        let pump = latest["pump"] as? [String: Any]
+        let pump = newest["pump"] as? [String: Any]
         let battery = pump?["battery"] as? [String: Any]
+        let preds = predictions(from: suggested) ?? predictions(from: enacted)
 
         return LoopStatus(
-            iob: num(active?["iob"]) ?? num(iobObj?["iob"]) ?? 0,
-            cob: num(active?["cob"]) ?? num(active?["COB"]) ?? 0,
+            iob: iobValue(active: active, iobObject: iobObj) ?? 0,
+            cob: cobValue(active: active) ?? 0,
             eventualBgMgdl: intVal(active?["eventualBG"]) ?? intVal(suggested?["eventualBG"]),
             tempBasalRate: num(active?["rate"]),
             suggestedReason: active?["reason"] as? String,
-            timestamp: (active?["timestamp"] as? String).flatMap(isoParse) ?? Date(),
-            predictions: predictions(from: suggested) ?? predictions(from: enacted),
+            // Never `Date()`. `RT.timestamp` is an ISO string written from `lastRun.lastAPSRun`; the
+            // document's own `date` is the only honest fallback (the APS result is at most 5 min older).
+            timestamp: (active?["timestamp"] as? String).flatMap(isoParse) ?? millisDate(from: num(apsRecord["date"])),
+            predictions: preds,
             pumpBattery: intVal(battery?["percent"]),
             pumpReservoir: num(pump?["reservoir"]),
-            uploaderBattery: intVal(latest["uploaderBattery"]),
-            reason: parseReason(from: enacted ?? suggested)
+            uploaderBattery: intVal(newest["uploaderBattery"]),
+            reason: parseReason(from: enacted ?? suggested, predictions: preds),
+            carbsReq: intVal(active?["carbsReq"]),
+            carbsReqWithin: intVal(active?["carbsReqWithin"]),
+            // From the NEWEST record, not the APS one: this is the upload heartbeat, and it is the
+            // only thing that stays fresh while the loop is stopped. See `LoopStatus.deviceDate`.
+            deviceDate: millisDate(from: num(newest["date"]))
         )
+    }
+
+    /// The newest devicestatus document's `date`, ignoring whether it carries an APS result.
+    ///
+    /// The master's keep-alive uploads one every five minutes even with the loop stopped, so this is
+    /// the honest answer to "is the master still there" when `loopStatus` has (correctly) returned
+    /// nil because no APS run is left in the fetched window.
+    static func deviceStatusHeartbeat(from data: Data) throws -> Date? {
+        guard let newest = try resultArray(data).first else { return nil }
+        return millisDate(from: num(newest["date"]))
     }
 
     static func deviceStatusHistory(from data: Data) throws -> [DeviceStatusEntry] {
         try resultArray(data).compactMap { d in
             guard let ts = num(d["date"]) else { return nil }
+            // Same rule as `loopStatus`: a pump-only keep-alive record has no IOB/COB to plot. Charting
+            // it as 0 draws a sawtooth of zeros across up to 288 records instead of an honest gap.
+            guard hasApsResult(d) else { return nil }
             let openaps = d["openaps"] as? [String: Any]
             let enacted = openaps?["enacted"] as? [String: Any]
             let suggested = openaps?["suggested"] as? [String: Any]
             let active = enacted ?? suggested
             let iobObj = openaps?["iob"] as? [String: Any]
-            let iob = num(active?["iob"]) ?? num(iobObj?["iob"]) ?? 0
-            let cob = num(active?["cob"]) ?? num(active?["COB"]) ?? 0
-            return DeviceStatusEntry(date: date(from: ts), iob: iob, cob: cob)
+            return DeviceStatusEntry(
+                date: date(from: ts),
+                iob: iobValue(active: active, iobObject: iobObj) ?? 0,
+                cob: cobValue(active: active) ?? 0
+            )
         }
+    }
+
+    /// True when the record carries something the APS actually produced. `NSDeviceStatus.OpenAps` is
+    /// always serialized, but with `suggested`/`enacted`/`iob` all omitted when the loop did not run.
+    private static func hasApsResult(_ record: [String: Any]) -> Bool {
+        guard let openaps = record["openaps"] as? [String: Any] else { return false }
+        return (openaps["suggested"] as? [String: Any]) != nil
+            || (openaps["enacted"] as? [String: Any]) != nil
+            || (openaps["iob"] as? [String: Any]) != nil
+    }
+
+    /// v4 serializes the APS result from `RT`, which spells these `IOB`/`COB`. The lowercase keys are
+    /// the oref0/3.x spelling and stay as fallbacks; `openaps.iob.iob` is a separate, still-lowercase
+    /// upload and is the last resort.
+    private static func iobValue(active: [String: Any]?, iobObject: [String: Any]?) -> Double? {
+        num(active?["IOB"]) ?? num(active?["iob"]) ?? num(iobObject?["iob"])
+    }
+
+    private static func cobValue(active: [String: Any]?) -> Double? {
+        num(active?["COB"]) ?? num(active?["cob"])
     }
 
     static func profile(from data: Data) throws -> NsProfile {
@@ -108,14 +176,30 @@ enum NsMapping {
             } ?? []
         }
 
+        // v4's uploaded profile store carries no `dia` — insulin duration moved into `ICfg`, and
+        // `ProfileRepositoryImpl.createAndStoreConvertedProfile` writes only the schedules, units and
+        // timezone. Treatments spell the block `icfg` (lowercase, see `RemoteTreatment.iCfg`); accept
+        // the camelCase spelling too for anything that mirrors the local model. When neither is here the
+        // caller fills the gap from `insulin_configuration` via `NsProfile.fillingInsulin(from:)`.
+        let icfg = (prof["icfg"] as? [String: Any]) ?? (prof["iCfg"] as? [String: Any])
+        let insulinEndTimeMs = num(icfg?["insulinEndTime"])
+        let insulinPeakMs = num(icfg?["insulinPeakTime"])
+
         return NsProfile(
             units: GlucoseUnits(nsUnits: prof["units"] as? String),
-            dia: num(prof["dia"]),
+            dia: (insulinEndTimeMs.map { $0 > 0 } == true)
+                ? insulinEndTimeMs.map { $0 / 3_600_000 }
+                : num(prof["dia"]),
             basal: schedule("basal").map { BasalEntry(startSeconds: $0.0, rate: $0.1) },
             targetLow: schedule("target_low").map { ScheduledValue(startSeconds: $0.0, value: $0.1) },
             targetHigh: schedule("target_high").map { ScheduledValue(startSeconds: $0.0, value: $0.1) },
             carbRatio: schedule("carbratio").map { ScheduledValue(startSeconds: $0.0, value: $0.1) },
-            sensitivity: schedule("sens").map { ScheduledValue(startSeconds: $0.0, value: $0.1) }
+            sensitivity: schedule("sens").map { ScheduledValue(startSeconds: $0.0, value: $0.1) },
+            insulinLabel: icfg?["insulinLabel"] as? String,
+            insulinPeakTimeMin: (insulinPeakMs.map { $0 > 0 } == true)
+                ? insulinPeakMs.map { Int(($0 / 60_000).rounded()) }
+                : nil,
+            concentration: num(icfg?["concentration"])
         )
     }
 
@@ -142,17 +226,29 @@ enum NsMapping {
         )
     }
 
+    /// Payload keys a `settings` document may carry, in the order they are tried.
+    ///
+    /// One list for both demux sites: they used to disagree on the order of `envelope`/`offer`, which
+    /// was harmless only because no document carries two of these at once. `progress` is included so
+    /// the client-control progress mirror parses if it is ever adopted.
+    private static let settingsPayloadKeys = ["runningConfig", "ack", "envelope", "offer", "progress"]
+
+    private static func settingsPayload(in doc: [String: Any]) -> Any {
+        for key in settingsPayloadKeys {
+            if let value = doc[key], !(value is NSNull) { return value }
+        }
+        return [String: Any]()
+    }
+
     static func settingsDocument(from data: Data, identifier: String) throws -> NsSettingsDocument? {
         guard let doc = try resultObject(data) else { return nil }
-        let configValue = doc["runningConfig"] ?? doc["ack"] ?? doc["envelope"] ?? doc["offer"] ?? [:]
-        return try settingsDocument(from: doc, identifier: identifier, configValue: configValue)
+        return try settingsDocument(from: doc, identifier: identifier, configValue: settingsPayload(in: doc))
     }
 
     static func settingsDocuments(from data: Data) throws -> [NsSettingsDocument] {
         try resultArray(data).compactMap { doc in
             guard let identifier = doc["identifier"] as? String else { return nil }
-            let configValue = doc["runningConfig"] ?? doc["ack"] ?? doc["offer"] ?? doc["envelope"] ?? [:]
-            return try settingsDocument(from: doc, identifier: identifier, configValue: configValue)
+            return try settingsDocument(from: doc, identifier: identifier, configValue: settingsPayload(in: doc))
         }
     }
 
@@ -166,6 +262,8 @@ enum NsMapping {
             isFakingTempsByExtendedBoluses: boolVal(config["isFakingTempsByExtendedBoluses"]),
             syncedPrefs: stringMap(config["syncedPrefs"]),
             authorizedClientIds: clientIds,
+            // Absent block vs. block listing nobody — see `authorizedClientsPublished`.
+            authorizedClientsPublished: authorized != nil,
             srvModified: document.srvModified
         )
     }
@@ -290,28 +388,43 @@ enum NsMapping {
         millis.map { Date(timeIntervalSince1970: $0 / 1000) }
     }
 
-    private static func parseReason(from enacted: [String: Any]?) -> LoopReason {
-        guard let e = enacted else { return LoopReason(isfMgdl: nil, cr: nil, targetMgdl: nil, tdd: nil, deviation: nil, bgi: nil, minPredBg: nil, iobPredBg: nil, cobPredBg: nil) }
+    /// Reads the v4 `RT` spellings first (`targetBG`, `carbRatio`, `variable_sens`, `isfMgdlForCarbs`)
+    /// and falls back to the oref0-era scalars. `minPredBG`/`IOBpredBG`/`COBpredBG` do not exist on
+    /// `RT` at all, so the troughs are derived from the already-parsed `predBGs` curves — without this
+    /// the predicted-low alarm can never fire against a v4 master.
+    private static func parseReason(from enacted: [String: Any]?, predictions preds: Predictions?) -> LoopReason {
+        let e = enacted ?? [:]
         return LoopReason(
-            isfMgdl: num(e["ISF"]) ?? num(e["variable_sens"]),
-            cr: num(e["CR"]),
-            targetMgdl: intVal(e["current_target"]) ?? intVal(e["target_bg"]),
-            tdd: num(e["TDD"]) ?? num(e["insulin"]),
+            isfMgdl: num(e["ISF"]) ?? num(e["variable_sens"]) ?? num(e["isfMgdlForCarbs"]),
+            cr: num(e["CR"]) ?? num(e["carbRatio"]),
+            targetMgdl: intVal(e["targetBG"]) ?? intVal(e["current_target"]) ?? intVal(e["target_bg"]),
+            tdd: num(e["TDD"]),
             deviation: num(e["deviation"]),
             bgi: num(e["BGI"]),
-            minPredBg: intVal(e["minPredBG"]),
-            iobPredBg: intVal(e["IOBpredBG"]),
-            cobPredBg: intVal(e["COBpredBG"])
+            minPredBg: intVal(e["minPredBG"]) ?? preds?.minimumMgdl,
+            iobPredBg: intVal(e["IOBpredBG"]) ?? preds?.iob.min(),
+            cobPredBg: intVal(e["COBpredBG"]) ?? preds?.cob.min()
         )
     }
 
+    /// Human label for an `OpenAPS Offline` row when the master sent no `notes`.
+    ///
+    /// This is the fallback only — `Treatment.mode` now carries the raw `RM.Mode` name, and the app
+    /// target maps it to a localized name via `RunningMode.displayName`. `NsMapping` lives in `Shared`,
+    /// which the widget extension also compiles, so it cannot reach into `App/Domain`.
     private static func loopModeLabel(eventType: String, mode: String?) -> String? {
         guard eventType == "OpenAPS Offline" else { return nil }
         switch mode {
-        case "CLOSED_LOOP": return "Closed Loop"
-        case "OPEN_LOOP": return "Open Loop"
+        case "OPEN_LOOP":         return "Open Loop"
+        case "CLOSED_LOOP":       return "Closed Loop"
+        case "CLOSED_LOOP_LGS":   return "Closed Loop (LGS)"
+        case "DISABLED_LOOP":     return "Loop Disabled"
+        case "SUPER_BOLUS":       return "Super Bolus"
+        case "DISCONNECTED_PUMP": return "Pump Disconnected"
+        case "SUSPENDED_BY_PUMP": return "Suspended by Pump"
         case "SUSPENDED_BY_USER": return "Suspended"
-        case "DISCONNECTED_PUMP": return "Disconnected"
+        case "SUSPENDED_BY_DST":  return "Suspended (DST)"
+        case "RESUME":            return "Resume"
         default: return mode
         }
     }

@@ -1,0 +1,34 @@
+{
+  "status": 200,
+  "result": {
+    "_id": "aaps",
+    "identifier": "aaps",
+    "date": 946684800001,
+    "utcOffset": 0,
+    "app": "AAPS",
+    "schemaVersion": 1,
+    "srvModified": 1760000000000,
+    "runningConfig": {
+      "pump": "Dana-i",
+      "version": "4.0.0",
+      "isFakingTempsByExtendedBoluses": false,
+      "syncedPrefs": {
+        "ns_allow_client_control": "true",
+        "active_plugin_aps": "OpenAPSSMB",
+        "active_plugin_sensitivity": "SensitivityOref1",
+        "active_plugin_smoothing": "ExponentialSmoothing",
+        "active_plugin_calibration": "NoCalibration",
+        "use_smb": "true",
+        "simple_mode": "false",
+        "temp_target_presets": "[{\"id\":\"eating_soon\",\"reason\":\"Eating Soon\",\"targetValue\":90.0,\"duration\":2700000,\"isDeletable\":false},{\"id\":\"custom-1\",\"name\":\"Football\",\"reason\":\"Activity\",\"targetValue\":140.0,\"duration\":5400000,\"isDeletable\":true}]",
+        "QuickWizard": "[{\"buttonText\":\"Breakfast\",\"carbs\":30,\"percentage\":100}]",
+        "scene_definitions": "[{\"id\":\"school-sport\",\"name\":\"School Sport\",\"icon\":\"figure.run\",\"defaultDurationMinutes\":90,\"isDeletable\":true,\"isEnabled\":true,\"sortOrder\":0,\"actions\":[],\"endAction\":{\"type\":\"Notification\"}},{\"id\":\"night-shift\",\"name\":\"Night Shift\",\"icon\":\"moon\",\"defaultDurationMinutes\":480,\"isDeletable\":true,\"isEnabled\":false,\"sortOrder\":1,\"actions\":[],\"endAction\":{\"type\":\"Notification\"}}]",
+        "insulin_configuration": "{\"insulin\":[{\"insulinLabel\":\"Lyumjev\",\"insulinEndTime\":25200000,\"insulinPeakTime\":2700000,\"concentration\":1.0,\"insulinNickname\":\"Lyumjev U100\"}]}",
+        "local_profile_data": "{\"lastChange\":1760000000000,\"profiles\":[{\"name\":\"Weekday\",\"mgdl\":true,\"ic\":[{\"time\":\"00:00\",\"timeAsSeconds\":0,\"value\":7.5}],\"isf\":[{\"time\":\"00:00\",\"timeAsSeconds\":0,\"value\":52}],\"basal\":[{\"time\":\"00:00\",\"timeAsSeconds\":0,\"value\":0.75}],\"targetLow\":[{\"time\":\"00:00\",\"timeAsSeconds\":0,\"value\":100}],\"targetHigh\":[{\"time\":\"00:00\",\"timeAsSeconds\":0,\"value\":100}]}]}"
+      },
+      "authorizedClients": {
+        "clientIds": ["ios-carer-1"]
+      }
+    }
+  }
+}

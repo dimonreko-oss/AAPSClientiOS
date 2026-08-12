@@ -1,0 +1,40 @@
+{
+  "status": 200,
+  "result": [
+    {
+      "date": 1760000700000,
+      "pump": { "reservoir": 117.5, "battery": { "percent": 70 } },
+      "openaps": {}
+    },
+    {
+      "date": 1760000400000,
+      "pump": { "reservoir": 118.0, "battery": { "percent": 70 } },
+      "openaps": {}
+    },
+    {
+      "date": 1760000100000,
+      "pump": { "reservoir": 118.4, "battery": { "percent": 71 } },
+      "openaps": {
+        "enacted": {
+          "timestamp": "2025-10-09T07:35:00.000Z",
+          "IOB": 2.4,
+          "COB": 18.0,
+          "rate": 0.85,
+          "duration": 30
+        },
+        "iob": { "iob": 2.4 }
+      }
+    },
+    {
+      "date": 1759999800000,
+      "pump": { "reservoir": 118.9, "battery": { "percent": 71 } },
+      "openaps": {
+        "suggested": {
+          "timestamp": "2025-10-09T07:30:00.000Z",
+          "IOB": 2.85,
+          "COB": 31.0
+        }
+      }
+    }
+  ]
+}

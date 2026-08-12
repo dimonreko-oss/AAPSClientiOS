@@ -1,0 +1,84 @@
+{
+  "status": 200,
+  "result": [
+    {
+      "identifier": "rm-invalid-dst",
+      "eventType": "OpenAPS Offline",
+      "date": 1760003000000,
+      "duration": 60,
+      "durationInMilliseconds": 3600000,
+      "originalDuration": 3600000,
+      "mode": "SUSPENDED_BY_DST",
+      "autoForced": true,
+      "reasons": "DST change detected",
+      "reason": "OTHER",
+      "isValid": false,
+      "enteredBy": "AndroidAPS"
+    },
+    {
+      "identifier": "rm-disconnect",
+      "eventType": "OpenAPS Offline",
+      "date": 1760001800000,
+      "duration": 60,
+      "durationInMilliseconds": 3600000,
+      "originalDuration": 3600000,
+      "mode": "DISCONNECTED_PUMP",
+      "autoForced": false,
+      "reasons": "",
+      "reason": "OTHER",
+      "isValid": true,
+      "enteredBy": "AndroidAPS"
+    },
+    {
+      "identifier": "rm-closed-permanent",
+      "eventType": "OpenAPS Offline",
+      "date": 1760000000000,
+      "duration": 0,
+      "originalDuration": 0,
+      "mode": "CLOSED_LOOP",
+      "autoForced": false,
+      "reason": "OTHER",
+      "isValid": true,
+      "enteredBy": "AndroidAPS"
+    },
+    {
+      "identifier": "rm-expired-suspend",
+      "eventType": "OpenAPS Offline",
+      "date": 1759996400000,
+      "duration": 30,
+      "durationInMilliseconds": 1800000,
+      "originalDuration": 1800000,
+      "mode": "SUSPENDED_BY_USER",
+      "autoForced": false,
+      "reason": "OTHER",
+      "isValid": true,
+      "enteredBy": "AndroidAPS"
+    },
+    {
+      "identifier": "rm-disabled-old",
+      "eventType": "OpenAPS Offline",
+      "date": 1759913600000,
+      "duration": 5256000,
+      "durationInMilliseconds": 315360000000,
+      "originalDuration": 0,
+      "mode": "DISABLED_LOOP",
+      "autoForced": true,
+      "reasons": "Loop invocation not allowed",
+      "reason": "OTHER",
+      "isValid": true,
+      "enteredBy": "AndroidAPS"
+    },
+    {
+      "identifier": "rm-open-2h",
+      "eventType": "OpenAPS Offline",
+      "date": 1759910000000,
+      "duration": 0,
+      "originalDuration": 7200000,
+      "mode": "OPEN_LOOP",
+      "autoForced": false,
+      "reason": "OTHER",
+      "isValid": true,
+      "enteredBy": "AndroidAPS"
+    }
+  ]
+}

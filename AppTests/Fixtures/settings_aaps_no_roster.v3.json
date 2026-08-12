@@ -1,0 +1,20 @@
+{
+  "status": 200,
+  "result": {
+    "_id": "aaps",
+    "identifier": "aaps",
+    "date": 946684800001,
+    "utcOffset": 0,
+    "app": "AAPS",
+    "schemaVersion": 1,
+    "srvModified": 9999999999999,
+    "runningConfig": {
+      "pump": "Dana-i",
+      "version": "4.3.0",
+      "isFakingTempsByExtendedBoluses": false,
+      "syncedPrefs": {
+        "NsClientAllowClientControl": "true"
+      }
+    }
+  }
+}

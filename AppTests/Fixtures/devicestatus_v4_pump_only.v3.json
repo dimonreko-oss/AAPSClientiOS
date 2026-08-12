@@ -1,0 +1,18 @@
+{
+  "status": 200,
+  "result": [
+    {
+      "device": "openaps://Google Pixel 8",
+      "date": 1760000400000,
+      "uploaderBattery": 62,
+      "isCharging": false,
+      "pump": {
+        "clock": "2025-10-09T07:40:00.000Z",
+        "reservoir": 118.0,
+        "battery": { "percent": 70, "voltage": 1.42 },
+        "status": { "status": "Suspended", "timestamp": "2025-10-09T07:40:00.000Z" }
+      },
+      "openaps": {}
+    }
+  ]
+}

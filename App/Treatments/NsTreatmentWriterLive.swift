@@ -85,7 +85,14 @@ final class NsTreatmentWriterLive: NsTreatmentWriter, @unchecked Sendable {
             "profile": name,
             "percentage": percentage,
             "duration": durationMin,
-            "timeshift": timeshiftHours,
+            // MILLISECONDS on this channel. `RemoteTreatment.timeshift` flows straight into
+            // `NSProfileSwitch.timeShift` and then into `PS.timeshift`, which is documented and used as
+            // milliseconds throughout the master (`PS.kt: var timeshift: Long // [milliseconds]`).
+            // Sending hours here made a 2 h shift arrive as 2 ms and round to zero, silently.
+            //
+            // Do NOT hoist this into a shared helper: the client-control channel takes the opposite
+            // unit (`BatchActionDto.timeShiftHours` is hours), so the conversion belongs only here.
+            "timeshift": Int64(timeshiftHours) * 3_600_000,
             "date": Int64(Date().timeIntervalSince1970 * 1000),
             "enteredBy": appName,
         ]

@@ -1,0 +1,74 @@
+{
+  "status": 200,
+  "result": [
+    {
+      "device": "openaps://Google Pixel 8",
+      "date": 1760000100000,
+      "uploaderBattery": 63,
+      "isCharging": false,
+      "pump": {
+        "clock": "2025-10-09T07:35:00.000Z",
+        "reservoir": 118.4,
+        "battery": { "percent": 71, "voltage": 1.42 },
+        "status": { "status": "Closed Loop", "timestamp": "2025-10-09T07:35:00.000Z" },
+        "extended": {
+          "Version": "4.0.0",
+          "ActiveProfile": "Weekday",
+          "BaseBasalRate": 0.75,
+          "TempBasalAbsoluteRate": 0.85,
+          "TempBasalRemaining": 22
+        }
+      },
+      "openaps": {
+        "suggested": {
+          "algorithm": "SMB",
+          "runningDynamicIsf": true,
+          "timestamp": "2025-10-09T07:35:00.000Z",
+          "temp": "absolute",
+          "bg": 142.0,
+          "tick": "-3",
+          "eventualBG": 118.0,
+          "targetBG": 100.0,
+          "insulinReq": 0.35,
+          "carbsReq": 12,
+          "carbsReqWithin": 30,
+          "sensitivityRatio": 1.05,
+          "reason": "COB 18, Dev 4, ISF 52, Target 100",
+          "duration": 30,
+          "rate": 0.85,
+          "predBGs": {
+            "IOB": [142, 138, 130, 121, 114, 110],
+            "COB": [142, 145, 141, 133, 124, 118],
+            "ZT": [142, 134, 124, 116, 109, 104],
+            "UAM": [142, 140, 133, 125, 118, 112]
+          },
+          "COB": 18.0,
+          "IOB": 2.4,
+          "variable_sens": 52.0,
+          "carbRatio": 7.5,
+          "isfMgdlForCarbs": 49.0
+        },
+        "enacted": {
+          "algorithm": "SMB",
+          "runningDynamicIsf": true,
+          "timestamp": "2025-10-09T07:35:02.000Z",
+          "temp": "absolute",
+          "bg": 142.0,
+          "eventualBG": 118.0,
+          "targetBG": 100.0,
+          "carbsReq": 12,
+          "carbsReqWithin": 30,
+          "reason": "COB 18, Dev 4, ISF 52, Target 100",
+          "duration": 30,
+          "rate": 0.85,
+          "received": true,
+          "COB": 18.0,
+          "IOB": 2.4,
+          "variable_sens": 52.0,
+          "carbRatio": 7.5
+        },
+        "iob": { "iob": 2.4, "basaliob": -0.18, "activity": 0.021 }
+      }
+    }
+  ]
+}
